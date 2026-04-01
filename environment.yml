@@ -10,4 +10,5 @@ dependencies:
       - stable-baselines3
       - wandb
       - PyYAML
+      - imageio
 prefix: /opt/anaconda3/envs/armThrow

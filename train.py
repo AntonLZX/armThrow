@@ -21,6 +21,112 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.callbacks import CallbackList
 
 try:
+    import imageio
+    IMAGEIO_AVAILABLE = True
+except Exception:
+    IMAGEIO_AVAILABLE = False
+
+class EpisodeRecorderCallback(BaseCallback):
+    """Records the first episode as a GIF."""
+    def __init__(self, save_path=None, verbose=0):
+        super().__init__(verbose)
+        self.save_path = save_path
+        self.episode_count = 0
+        self.first_episode_recorded = False
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        dones = self.locals.get("dones", [])
+
+        for done, info in zip(dones, infos):
+            if done and "episode" in info:
+                self.episode_count += 1
+                if self.episode_count == 1 and not self.first_episode_recorded:
+                    # First episode complete
+                    if hasattr(self.model.env, "envs"):
+                        # VecEnv
+                        env = self.model.env.envs[0]
+                    else:
+                        # Single env
+                        env = self.model.env
+                    
+                    # Record next episode
+                    self.record_episode(env)
+                    self.first_episode_recorded = True
+        return True
+
+    def record_episode(self, env):
+        """Records one episode and saves as GIF."""
+        if not IMAGEIO_AVAILABLE:
+            print("Warning: imageio not installed. Skipping GIF recording.")
+            return
+
+        frames = []
+        obs, _ = env.reset()
+        done = False
+        truncated = False
+
+        while not (done or truncated):
+            # Capture frame
+            frame = self.capture_frame(env)
+            if frame is not None:
+                frames.append(frame)
+
+            action, _ = self.model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, info = env.step(action)
+
+        # Save GIF
+        if frames and self.save_path:
+            gif_path = Path(self.save_path) / "first_episode.gif"
+            imageio.mimsave(str(gif_path), frames, fps=30)
+            if self.verbose > 0:
+                print(f"Saved first episode GIF to {gif_path}")
+
+    def capture_frame(self, env):
+        """Capture a frame from PyBullet."""
+        try:
+            width = 640
+            height = 480
+            
+            # Get camera view matrix (looking at the scene)
+            camera_distance = 3.0
+            camera_yaw = 45
+            camera_pitch = -30
+            
+            view_matrix = p.computeViewMatrixFromYawPitchRoll(
+                cameraTargetPosition=[0.5, 0, 0.5],
+                distance=camera_distance,
+                yaw=camera_yaw,
+                pitch=camera_pitch,
+                roll=0,
+                upAxisIndex=2,
+                physicsClientId=env.client
+            )
+            
+            proj_matrix = p.computeProjectionMatrixFOV(
+                fov=60,
+                aspect=width / height,
+                nearVal=0.1,
+                farVal=100,
+                physicsClientId=env.client
+            )
+            
+            _, _, rgb_array, _, _ = p.getCameraImage(
+                width=width,
+                height=height,
+                viewMatrix=view_matrix,
+                projectionMatrix=proj_matrix,
+                physicsClientId=env.client
+            )
+            
+            # Convert to uint8 and return
+            return np.array(rgb_array, dtype=np.uint8)[:, :, :3]
+        except Exception as e:
+            if self.verbose > 0:
+                print(f"Error capturing frame: {e}")
+            return None
+
+try:
     import wandb
     from wandb.integration.sb3 import WandbCallback
     WANDB_AVAILABLE = True
@@ -144,6 +250,7 @@ class ArmThrowEnv(gym.Env):
         self.client = p.connect(p.GUI if self.render_enabled else p.DIRECT)
         p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.client)
 
+        # Action space: [angular_accel_1, angular_accel_2, angular_accel_3, release_trigger]
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32)
 
@@ -156,6 +263,8 @@ class ArmThrowEnv(gym.Env):
         self.released = False
         self.step_count = 0
         self.target_pos = np.array([2.0, 0.0, 0.5], dtype=np.float32)
+        self.joint_velocities = np.zeros(self.n_joints, dtype=np.float32)
+        self.target_radius = 0.1  # Radius around target for early termination
 
     def _sample_target(self):
         target_cfg = self.cfg["target"]
@@ -222,22 +331,44 @@ class ArmThrowEnv(gym.Env):
 
         self.released = False
         self.step_count = 0
+        self.joint_velocities = np.zeros(self.n_joints, dtype=np.float32)
         return self._get_obs(), {}
 
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
         action = np.clip(action, -1.0, 1.0)
 
-        torques = action[:3] * self.torque_scale
-        for i in range(self.n_joints):
-            p.setJointMotorControl2(
-                self.robot_id,
-                i,
-                p.TORQUE_CONTROL,
-                force=float(torques[i]),
-                physicsClientId=self.client,
-            )
+        # Convert action (angular acceleration) to velocity via integration
+        # a_desired = action[:3] * accel_scale
+        # v_new = v_old + a * dt
+        accel_scale = self.torque_scale  # Reuse torque scale for acceleration scale
+        self.joint_velocities += action[:3] * accel_scale * self.dt
+        
+        # Apply velocity control to joints (only before release)
+        if not self.released:
+            for i in range(self.n_joints):
+                p.setJointMotorControl2(
+                    self.robot_id,
+                    i,
+                    p.VELOCITY_CONTROL,
+                    targetVelocity=float(self.joint_velocities[i]),
+                    force=float(self.torque_scale),
+                    physicsClientId=self.client,
+                )
+        else:
+            # After release, freeze all joint movements
+            self.joint_velocities = np.zeros(self.n_joints, dtype=np.float32)
+            for i in range(self.n_joints):
+                p.setJointMotorControl2(
+                    self.robot_id,
+                    i,
+                    p.VELOCITY_CONTROL,
+                    targetVelocity=0.0,
+                    force=self.torque_scale,
+                    physicsClientId=self.client,
+                )
 
+        # Handle release
         if action[3] > 0.5 and not self.released:
             p.removeConstraint(self.cid, physicsClientId=self.client)
             self.cid = None
@@ -250,18 +381,32 @@ class ArmThrowEnv(gym.Env):
         ball_pos = np.array(ball_pos, dtype=np.float32)
 
         dist_to_target = np.linalg.norm(ball_pos - self.target_pos)
-        reward = float(np.exp(-1.5 * dist_to_target))
+        
+        # Reward logic:
+        # - Before release: control cost only
+        # - In air (released & z >= 0.05): accumulate distance reward
+        # - Landed (z < 0.05): landing bonus only
+        reward = 0.0
+        
         if not self.released:
-            reward -= 0.002
-        reward -= 0.0005 * float(np.sum(np.square(action[:3])))
+            # Before release: penalize control effort
+            reward -= 0.0005 * float(np.sum(np.square(action[:3])))
+        elif ball_pos[2] >= 0.05:
+            # Ball in air: accumulate distance-based reward
+            reward = float(np.exp(-1.5 * dist_to_target))
+        # else: Ball landed, reward = 0 until landing bonus below
 
         terminated = False
         truncated = False
 
+        # Landing termination: ball hits ground after release
         if self.released and ball_pos[2] < 0.05:
             terminated = True
-            landing_xy_dist = np.linalg.norm(ball_pos[:2] - self.target_pos[:2])
-            reward += float(5.0 * np.exp(-2.0 * landing_xy_dist))
+
+        # Early termination: ball reaches target in air (within radius)
+        if self.released and dist_to_target < self.target_radius and ball_pos[2] >= 0.05:
+            terminated = True
+            reward += 10.0  # Bonus for hitting target while in air
 
         if self.step_count >= self.max_steps:
             truncated = True
@@ -337,6 +482,9 @@ def main(config_path="configs/base.yaml", render=None):
 
     callbacks = []
 
+    # Add episode recorder callback
+    callbacks.append(EpisodeRecorderCallback(save_path=run_dir, verbose=1))
+
     if cfg["logging"]["use_wandb"]:
         if not WANDB_AVAILABLE:
             raise ImportError("wandb is enabled in config but not installed.")
@@ -358,7 +506,7 @@ def main(config_path="configs/base.yaml", render=None):
             sync_tensorboard=cfg["logging"]["sync_tensorboard"],
             dir=str(run_dir),
         )
-        callbacks= CallbackList([
+        callbacks.extend([
             WandbCallback(
                 model_save_path=str(run_dir / "wandb_models"),
                 model_save_freq=0,
@@ -367,12 +515,12 @@ def main(config_path="configs/base.yaml", render=None):
             WandbEpisodeCallback(),
             WandbTrainStatsCallback(log_freq=1000),
             WandbEvalCallback(eval_env=eval_env, eval_freq=5000, n_eval_episodes=20),
-            ])
+        ])
         
 
     model.learn(
         total_timesteps=cfg["algo"]["total_timesteps"],
-        callback=callbacks if callbacks else None,
+        callback=CallbackList(callbacks) if callbacks else None,
     )
 
     if cfg["logging"]["save_model"]:
