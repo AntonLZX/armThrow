@@ -7,4 +7,7 @@ dependencies:
   - pip
   - pip:
       - pybullet
+      - stable-baselines3
+      - wandb
+      - PyYAML
 prefix: /opt/anaconda3/envs/armThrow
