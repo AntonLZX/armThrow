@@ -341,8 +341,10 @@ def main(config_path="configs/base.yaml", render=None):
         if not WANDB_AVAILABLE:
             raise ImportError("wandb is enabled in config but not installed.")
 
-        # set up eval env
-        eval_env = ArmThrowEnv(cfg["env"])
+        # set up eval env (always non-rendering to avoid multiple GUI connections)
+        eval_cfg = cfg["env"].copy()
+        eval_cfg["render"] = False
+        eval_env = ArmThrowEnv(eval_cfg)
         # seed means it is reproducable for all runs
         eval_env.reset(seed=123)
         

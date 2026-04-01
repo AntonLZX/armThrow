@@ -1,0 +1,40 @@
+seed: 42
+run_name: "ppo_arm_throw"
+
+env:
+  arm_urdf: "arm.urdf"
+  render: true
+  max_steps: 240
+  end_effector_link_index: 3
+  torque_scale: 50.0
+
+  target:
+    mode: "fixed"   # fixed or random
+    fixed: [2.0, 0.0, 0.5]
+    random:
+      x: [1.8, 2.2]
+      y: [-0.2, 0.2]
+      z: [0.4, 0.6]
+
+algo:
+  name: "PPO"
+  total_timesteps: 100000
+  learning_rate: 0.0003
+  n_steps: 2048
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01
+
+logging:
+  name: "run-name" # <--CHANGE ME-->
+  save_dir: "runs"
+  use_wandb: true
+  project: "arm-throw"
+  entity: "nus-me5406"
+  tags: ["ppo", "pybullet"]
+  notes: "testing wandb + tensorboard"
+  sync_tensorboard: false
+  save_model: true
