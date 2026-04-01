@@ -21,6 +21,112 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.callbacks import CallbackList
 
 try:
+    import imageio
+    IMAGEIO_AVAILABLE = True
+except Exception:
+    IMAGEIO_AVAILABLE = False
+
+class EpisodeRecorderCallback(BaseCallback):
+    """Records the first episode as a GIF."""
+    def __init__(self, save_path=None, verbose=0):
+        super().__init__(verbose)
+        self.save_path = save_path
+        self.episode_count = 0
+        self.first_episode_recorded = False
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        dones = self.locals.get("dones", [])
+
+        for done, info in zip(dones, infos):
+            if done and "episode" in info:
+                self.episode_count += 1
+                if self.episode_count == 1 and not self.first_episode_recorded:
+                    # First episode complete
+                    if hasattr(self.model.env, "envs"):
+                        # VecEnv
+                        env = self.model.env.envs[0]
+                    else:
+                        # Single env
+                        env = self.model.env
+                    
+                    # Record next episode
+                    self.record_episode(env)
+                    self.first_episode_recorded = True
+        return True
+
+    def record_episode(self, env):
+        """Records one episode and saves as GIF."""
+        if not IMAGEIO_AVAILABLE:
+            print("Warning: imageio not installed. Skipping GIF recording.")
+            return
+
+        frames = []
+        obs, _ = env.reset()
+        done = False
+        truncated = False
+
+        while not (done or truncated):
+            # Capture frame
+            frame = self.capture_frame(env)
+            if frame is not None:
+                frames.append(frame)
+
+            action, _ = self.model.predict(obs, deterministic=True)
+            obs, reward, done, truncated, info = env.step(action)
+
+        # Save GIF
+        if frames and self.save_path:
+            gif_path = Path(self.save_path) / "first_episode.gif"
+            imageio.mimsave(str(gif_path), frames, fps=30)
+            if self.verbose > 0:
+                print(f"Saved first episode GIF to {gif_path}")
+
+    def capture_frame(self, env):
+        """Capture a frame from PyBullet."""
+        try:
+            width = 640
+            height = 480
+            
+            # Get camera view matrix (looking at the scene)
+            camera_distance = 3.0
+            camera_yaw = 45
+            camera_pitch = -30
+            
+            view_matrix = p.computeViewMatrixFromYawPitchRoll(
+                cameraTargetPosition=[0.5, 0, 0.5],
+                distance=camera_distance,
+                yaw=camera_yaw,
+                pitch=camera_pitch,
+                roll=0,
+                upAxisIndex=2,
+                physicsClientId=env.client
+            )
+            
+            proj_matrix = p.computeProjectionMatrixFOV(
+                fov=60,
+                aspect=width / height,
+                nearVal=0.1,
+                farVal=100,
+                physicsClientId=env.client
+            )
+            
+            _, _, rgb_array, _, _ = p.getCameraImage(
+                width=width,
+                height=height,
+                viewMatrix=view_matrix,
+                projectionMatrix=proj_matrix,
+                physicsClientId=env.client
+            )
+            
+            # Convert to uint8 and return
+            return np.array(rgb_array, dtype=np.uint8)[:, :, :3]
+        except Exception as e:
+            if self.verbose > 0:
+                print(f"Error capturing frame: {e}")
+            return None
+
+try:
     import wandb
     from wandb.integration.sb3 import WandbCallback
     WANDB_AVAILABLE = True
@@ -376,6 +482,9 @@ def main(config_path="configs/base.yaml", render=None):
 
     callbacks = []
 
+    # Add episode recorder callback
+    callbacks.append(EpisodeRecorderCallback(save_path=run_dir, verbose=1))
+
     if cfg["logging"]["use_wandb"]:
         if not WANDB_AVAILABLE:
             raise ImportError("wandb is enabled in config but not installed.")
@@ -397,7 +506,7 @@ def main(config_path="configs/base.yaml", render=None):
             sync_tensorboard=cfg["logging"]["sync_tensorboard"],
             dir=str(run_dir),
         )
-        callbacks= CallbackList([
+        callbacks.extend([
             WandbCallback(
                 model_save_path=str(run_dir / "wandb_models"),
                 model_save_freq=0,
@@ -406,12 +515,12 @@ def main(config_path="configs/base.yaml", render=None):
             WandbEpisodeCallback(),
             WandbTrainStatsCallback(log_freq=1000),
             WandbEvalCallback(eval_env=eval_env, eval_freq=5000, n_eval_episodes=20),
-            ])
+        ])
         
 
     model.learn(
         total_timesteps=cfg["algo"]["total_timesteps"],
-        callback=callbacks if callbacks else None,
+        callback=CallbackList(callbacks) if callbacks else None,
     )
 
     if cfg["logging"]["save_model"]:
