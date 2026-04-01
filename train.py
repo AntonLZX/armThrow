@@ -302,8 +302,11 @@ def make_run_dir(base_dir: str, run_name: str):
     return run_dir
 
 
-def main(config_path="configs/base.yaml"):
+def main(config_path="configs/base.yaml", render=None):
     cfg = load_config(config_path)
+    # Override render from command line if provided
+    if render is not None:
+        cfg["env"]["render"] = render
     set_seed(cfg["seed"])
 
     run_dir = make_run_dir(cfg["logging"]["save_dir"], cfg["run_name"])
@@ -386,6 +389,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/base.yaml")
+    parser.add_argument("--render", action="store_true", help="Enable rendering during training")
+    parser.add_argument("--no-render", action="store_true", help="Disable rendering during training")
     args = parser.parse_args()
 
-    main(args.config)
+    render_override = None
+    if args.render:
+        render_override = True
+    elif args.no_render:
+        render_override = False
+    
+    main(args.config, render=render_override)

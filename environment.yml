@@ -1,0 +1,9 @@
+name: armThrow
+channels:
+  - defaults
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+dependencies:
+  - python=3.11
+  - pybullet
+prefix: /opt/anaconda3/envs/armThrow

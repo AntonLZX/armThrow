@@ -3,7 +3,7 @@ run_name: "ppo_arm_throw"
 
 env:
   arm_urdf: "arm.urdf"
-  render: false
+  render: true
   max_steps: 240
   end_effector_link_index: 3
   torque_scale: 50.0
