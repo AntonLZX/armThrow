@@ -144,6 +144,7 @@ class ArmThrowEnv(gym.Env):
         self.client = p.connect(p.GUI if self.render_enabled else p.DIRECT)
         p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.client)
 
+        # Action space: [angular_accel_1, angular_accel_2, angular_accel_3, release_trigger]
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(4,), dtype=np.float32)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32)
 
@@ -156,6 +157,8 @@ class ArmThrowEnv(gym.Env):
         self.released = False
         self.step_count = 0
         self.target_pos = np.array([2.0, 0.0, 0.5], dtype=np.float32)
+        self.joint_velocities = np.zeros(self.n_joints, dtype=np.float32)
+        self.target_radius = 0.1  # Radius around target for early termination
 
     def _sample_target(self):
         target_cfg = self.cfg["target"]
@@ -222,22 +225,44 @@ class ArmThrowEnv(gym.Env):
 
         self.released = False
         self.step_count = 0
+        self.joint_velocities = np.zeros(self.n_joints, dtype=np.float32)
         return self._get_obs(), {}
 
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
         action = np.clip(action, -1.0, 1.0)
 
-        torques = action[:3] * self.torque_scale
-        for i in range(self.n_joints):
-            p.setJointMotorControl2(
-                self.robot_id,
-                i,
-                p.TORQUE_CONTROL,
-                force=float(torques[i]),
-                physicsClientId=self.client,
-            )
+        # Convert action (angular acceleration) to velocity via integration
+        # a_desired = action[:3] * accel_scale
+        # v_new = v_old + a * dt
+        accel_scale = self.torque_scale  # Reuse torque scale for acceleration scale
+        self.joint_velocities += action[:3] * accel_scale * self.dt
+        
+        # Apply velocity control to joints (only before release)
+        if not self.released:
+            for i in range(self.n_joints):
+                p.setJointMotorControl2(
+                    self.robot_id,
+                    i,
+                    p.VELOCITY_CONTROL,
+                    targetVelocity=float(self.joint_velocities[i]),
+                    force=float(self.torque_scale),
+                    physicsClientId=self.client,
+                )
+        else:
+            # After release, freeze all joint movements
+            self.joint_velocities = np.zeros(self.n_joints, dtype=np.float32)
+            for i in range(self.n_joints):
+                p.setJointMotorControl2(
+                    self.robot_id,
+                    i,
+                    p.VELOCITY_CONTROL,
+                    targetVelocity=0.0,
+                    force=self.torque_scale,
+                    physicsClientId=self.client,
+                )
 
+        # Handle release
         if action[3] > 0.5 and not self.released:
             p.removeConstraint(self.cid, physicsClientId=self.client)
             self.cid = None
@@ -250,18 +275,32 @@ class ArmThrowEnv(gym.Env):
         ball_pos = np.array(ball_pos, dtype=np.float32)
 
         dist_to_target = np.linalg.norm(ball_pos - self.target_pos)
-        reward = float(np.exp(-1.5 * dist_to_target))
+        
+        # Reward logic:
+        # - Before release: control cost only
+        # - In air (released & z >= 0.05): accumulate distance reward
+        # - Landed (z < 0.05): landing bonus only
+        reward = 0.0
+        
         if not self.released:
-            reward -= 0.002
-        reward -= 0.0005 * float(np.sum(np.square(action[:3])))
+            # Before release: penalize control effort
+            reward -= 0.0005 * float(np.sum(np.square(action[:3])))
+        elif ball_pos[2] >= 0.05:
+            # Ball in air: accumulate distance-based reward
+            reward = float(np.exp(-1.5 * dist_to_target))
+        # else: Ball landed, reward = 0 until landing bonus below
 
         terminated = False
         truncated = False
 
+        # Landing termination: ball hits ground after release
         if self.released and ball_pos[2] < 0.05:
             terminated = True
-            landing_xy_dist = np.linalg.norm(ball_pos[:2] - self.target_pos[:2])
-            reward += float(5.0 * np.exp(-2.0 * landing_xy_dist))
+
+        # Early termination: ball reaches target in air (within radius)
+        if self.released and dist_to_target < self.target_radius and ball_pos[2] >= 0.05:
+            terminated = True
+            reward += 10.0  # Bonus for hitting target while in air
 
         if self.step_count >= self.max_steps:
             truncated = True
