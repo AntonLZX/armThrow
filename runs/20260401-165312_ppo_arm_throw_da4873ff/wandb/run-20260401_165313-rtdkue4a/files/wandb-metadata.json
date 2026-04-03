@@ -1,0 +1,45 @@
+{
+  "os": "Linux-5.15.0-139-generic-x86_64-with-glibc2.31",
+  "python": "CPython 3.11.15",
+  "startedAt": "2026-04-01T08:53:13.434123Z",
+  "args": [
+    "--config",
+    "configs/base.yaml",
+    "--render"
+  ],
+  "program": "/home/xf/Desktop/armThrow/train.py",
+  "codePath": "train.py",
+  "codePathLocal": "train.py",
+  "git": {
+    "remote": "https://github.com/AntonLZX/armThrow.git",
+    "commit": "310a1e8caed1962f504931574181a48444ff50c9"
+  },
+  "email": "zhixing.li@u.nus.edu",
+  "root": "runs/20260401-165312_ppo_arm_throw_da4873ff",
+  "host": "xf-X570-AORUS-ELITE",
+  "executable": "/home/xf/anaconda3/envs/armThrow/bin/python",
+  "cpu_count": 16,
+  "cpu_count_logical": 32,
+  "gpu": "NVIDIA GeForce RTX 3080",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "502392610816",
+      "used": "423387717632"
+    }
+  },
+  "memory": {
+    "total": "33588891648"
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 3080",
+      "memoryTotal": "10737418240",
+      "cudaCores": 8704,
+      "architecture": "Ampere",
+      "uuid": "GPU-9576d59c-b25c-3a29-2e63-528967a1672d"
+    }
+  ],
+  "cudaVersion": "12.2",
+  "writerId": "24wv066g4q7h04z0k0wekup3n9yao7gk"
+}

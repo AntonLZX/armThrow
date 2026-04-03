@@ -1,0 +1,230 @@
+_current_progress_remaining:
+    value: 1
+_custom_logger:
+    value: "True"
+_episode_num:
+    value: 0
+_last_episode_starts:
+    value: '[ True]'
+_last_obs:
+    value: |-
+        [[ 0.10958242  0.14343917 -0.16232906 -0.00611216  0.0197368   0.04756223
+           2.          0.          0.5       ]]
+_last_original_obs:
+    value: None
+_logger:
+    value: <stable_baselines3.common.logger.Logger object at 0x7f65e39fe1d0>
+_n_updates:
+    value: 0
+_num_timesteps_at_start:
+    value: 0
+_stats_window_size:
+    value: 100
+_total_timesteps:
+    value: 100000
+_vec_normalize_env:
+    value: None
+_wandb:
+    value:
+        cli_version: 0.25.1
+        e:
+            24wv066g4q7h04z0k0wekup3n9yao7gk:
+                args:
+                    - --config
+                    - configs/base.yaml
+                    - --render
+                codePath: train.py
+                codePathLocal: train.py
+                cpu_count: 16
+                cpu_count_logical: 32
+                cudaVersion: "12.2"
+                disk:
+                    /:
+                        total: "502392610816"
+                        used: "423387717632"
+                email: zhixing.li@u.nus.edu
+                executable: /home/xf/anaconda3/envs/armThrow/bin/python
+                git:
+                    commit: 310a1e8caed1962f504931574181a48444ff50c9
+                    remote: https://github.com/AntonLZX/armThrow.git
+                gpu: NVIDIA GeForce RTX 3080
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 8704
+                      memoryTotal: "10737418240"
+                      name: NVIDIA GeForce RTX 3080
+                      uuid: GPU-9576d59c-b25c-3a29-2e63-528967a1672d
+                host: xf-X570-AORUS-ELITE
+                memory:
+                    total: "33588891648"
+                os: Linux-5.15.0-139-generic-x86_64-with-glibc2.31
+                program: /home/xf/Desktop/armThrow/train.py
+                python: CPython 3.11.15
+                root: runs/20260401-165312_ppo_arm_throw_da4873ff
+                startedAt: "2026-04-01T08:53:13.434123Z"
+                writerId: 24wv066g4q7h04z0k0wekup3n9yao7gk
+        m: []
+        python_version: 3.11.15
+        t:
+            "1":
+                - 1
+            "2":
+                - 1
+            "3":
+                - 2
+                - 3
+                - 13
+                - 15
+                - 16
+                - 22
+                - 61
+            "4": 3.11.15
+            "5": 0.25.1
+            "12": 0.25.1
+            "13": linux-x86_64
+action_noise:
+    value: None
+action_space:
+    value: Box(-1.0, 1.0, (4,), float32)
+algo:
+    value:
+        batch_size: 64
+        clip_range: 0.2
+        ent_coef: 0.01
+        gae_lambda: 0.95
+        gamma: 0.99
+        learning_rate: 0.0003
+        n_epochs: 10
+        n_steps: 2048
+        name: PPO
+        total_timesteps: 100000
+batch_size:
+    value: 64
+clip_range:
+    value: FloatSchedule(ConstantSchedule(val=0.2))
+clip_range_vf:
+    value: None
+device:
+    value: cpu
+ent_coef:
+    value: 0.01
+env:
+    value:
+        arm_urdf: arm.urdf
+        end_effector_link_index: 3
+        max_steps: 240
+        render: true
+        target:
+            fixed:
+                - 2
+                - 0
+                - 0.5
+            mode: fixed
+            random:
+                x:
+                    - 1.8
+                    - 2.2
+                "y":
+                    - -0.2
+                    - 0.2
+                z:
+                    - 0.4
+                    - 0.6
+        torque_scale: 50
+ep_info_buffer:
+    value: deque([], maxlen=100)
+ep_success_buffer:
+    value: deque([], maxlen=100)
+gae_lambda:
+    value: 0.95
+gamma:
+    value: 0.99
+learning_rate:
+    value: 0.0003
+logging:
+    value:
+        entity: nus-me5406
+        name: run-name
+        notes: testing wandb + tensorboard
+        project: arm-throw
+        save_dir: runs
+        save_model: true
+        sync_tensorboard: false
+        tags:
+            - ppo
+            - pybullet
+        use_wandb: true
+lr_schedule:
+    value: FloatSchedule(ConstantSchedule(val=0.0003))
+max_grad_norm:
+    value: 0.5
+n_envs:
+    value: 1
+n_epochs:
+    value: 10
+n_steps:
+    value: 2048
+normalize_advantage:
+    value: "True"
+num_timesteps:
+    value: 0
+observation_space:
+    value: Box(-inf, inf, (9,), float32)
+policy:
+    value: |-
+        ActorCriticPolicy(
+          (features_extractor): FlattenExtractor(
+            (flatten): Flatten(start_dim=1, end_dim=-1)
+          )
+          (pi_features_extractor): FlattenExtractor(
+            (flatten): Flatten(start_dim=1, end_dim=-1)
+          )
+          (vf_features_extractor): FlattenExtractor(
+            (flatten): Flatten(start_dim=1, end_dim=-1)
+          )
+          (mlp_extractor): MlpExtractor(
+            (policy_net): Sequential(
+              (0): Linear(in_features=9, out_features=64, bias=True)
+              (1): Tanh()
+              (2): Linear(in_features=64, out_features=64, bias=True)
+              (3): Tanh()
+            )
+            (value_net): Sequential(
+              (0): Linear(in_features=9, out_features=64, bias=True)
+              (1): Tanh()
+              (2): Linear(in_features=64, out_features=64, bias=True)
+              (3): Tanh()
+            )
+          )
+          (action_net): Linear(in_features=64, out_features=4, bias=True)
+          (value_net): Linear(in_features=64, out_features=1, bias=True)
+        )
+policy_class:
+    value: <class 'stable_baselines3.common.policies.ActorCriticPolicy'>
+policy_kwargs:
+    value: '{}'
+rollout_buffer:
+    value: <stable_baselines3.common.buffers.RolloutBuffer object at 0x7f65f9972bd0>
+rollout_buffer_class:
+    value: <class 'stable_baselines3.common.buffers.RolloutBuffer'>
+rollout_buffer_kwargs:
+    value: '{}'
+run_name:
+    value: ppo_arm_throw
+sde_sample_freq:
+    value: -1
+seed:
+    value: 42
+start_time:
+    value: 1775033594602643542
+target_kl:
+    value: None
+tensorboard_log:
+    value: runs/20260401-165312_ppo_arm_throw_da4873ff/tb
+use_sde:
+    value: "False"
+verbose:
+    value: 1
+vf_coef:
+    value: 0.5

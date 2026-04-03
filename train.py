@@ -12,6 +12,7 @@ from gymnasium import spaces
 
 import pybullet as p
 import pybullet_data
+import imageio
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
@@ -19,12 +20,6 @@ from stable_baselines3.common.logger import configure
 
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.callbacks import CallbackList
-
-try:
-    import imageio
-    IMAGEIO_AVAILABLE = True
-except Exception:
-    IMAGEIO_AVAILABLE = False
 
 class EpisodeRecorderCallback(BaseCallback):
     """Records the first episode as a GIF."""
@@ -51,9 +46,6 @@ class EpisodeRecorderCallback(BaseCallback):
 
     def record_episode(self):
         """Records one episode and saves as GIF."""
-        if not IMAGEIO_AVAILABLE:
-            print("Warning: imageio not installed. Skipping GIF recording.")
-            return
         
         if self.env_cfg is None:
             print("Warning: env_cfg not provided. Skipping GIF recording.")
