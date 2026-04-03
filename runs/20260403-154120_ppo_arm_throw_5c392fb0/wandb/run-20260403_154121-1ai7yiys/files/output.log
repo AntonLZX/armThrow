@@ -1,0 +1,194 @@
+Recording first episode to GIF...
+✓ Saved first episode GIF (240 frames) to runs/20260403-154120_ppo_arm_throw_5c392fb0/first_episode.gif
+---------------------------------
+| rollout/           |          |
+|    ep_len_mean     | 73.1     |
+|    ep_rew_mean     | 3.52     |
+| time/              |          |
+|    fps             | 60       |
+|    iterations      | 1        |
+|    time_elapsed    | 33       |
+|    total_timesteps | 2048     |
+---------------------------------
+------------------------------------------
+| rollout/                |              |
+|    ep_len_mean          | 68.2         |
+|    ep_rew_mean          | 3.32         |
+| time/                   |              |
+|    fps                  | 79           |
+|    iterations           | 2            |
+|    time_elapsed         | 51           |
+|    total_timesteps      | 4096         |
+| train/                  |              |
+|    approx_kl            | 0.0046968674 |
+|    clip_fraction        | 0.0287       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -5.69        |
+|    explained_variance   | -0.302       |
+|    learning_rate        | 0.0003       |
+|    loss                 | -0.0437      |
+|    n_updates            | 10           |
+|    policy_gradient_loss | -0.00485     |
+|    std                  | 1.01         |
+|    value_loss           | 0.0713       |
+------------------------------------------
+/home/xf/Desktop/armThrow/train.py:182: RuntimeWarning: Mean of empty slice
+  "valid/mean_final_distance": float(np.nanmean(final_distances)),
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 69.7        |
+|    ep_rew_mean          | 3.43        |
+| time/                   |             |
+|    fps                  | 89          |
+|    iterations           | 3           |
+|    time_elapsed         | 68          |
+|    total_timesteps      | 6144        |
+| train/                  |             |
+|    approx_kl            | 0.006195615 |
+|    clip_fraction        | 0.0456      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -5.71       |
+|    explained_variance   | 0.0172      |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.000247    |
+|    n_updates            | 20          |
+|    policy_gradient_loss | -0.00465    |
+|    std                  | 1.01        |
+|    value_loss           | 0.148       |
+-----------------------------------------
+------------------------------------------
+| rollout/                |              |
+|    ep_len_mean          | 68.9         |
+|    ep_rew_mean          | 3.43         |
+| time/                   |              |
+|    fps                  | 98           |
+|    iterations           | 4            |
+|    time_elapsed         | 83           |
+|    total_timesteps      | 8192         |
+| train/                  |              |
+|    approx_kl            | 0.0044839885 |
+|    clip_fraction        | 0.0327       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -5.74        |
+|    explained_variance   | -0.0358      |
+|    learning_rate        | 0.0003       |
+|    loss                 | -0.0199      |
+|    n_updates            | 30           |
+|    policy_gradient_loss | -0.00413     |
+|    std                  | 1.02         |
+|    value_loss           | 0.188        |
+------------------------------------------
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 72.8        |
+|    ep_rew_mean          | 3.73        |
+| time/                   |             |
+|    fps                  | 100         |
+|    iterations           | 5           |
+|    time_elapsed         | 101         |
+|    total_timesteps      | 10240       |
+| train/                  |             |
+|    approx_kl            | 0.005819643 |
+|    clip_fraction        | 0.0329      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -5.78       |
+|    explained_variance   | 0.0941      |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.0536      |
+|    n_updates            | 40          |
+|    policy_gradient_loss | -0.00357    |
+|    std                  | 1.03        |
+|    value_loss           | 0.262       |
+-----------------------------------------
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 72.4        |
+|    ep_rew_mean          | 3.67        |
+| time/                   |             |
+|    fps                  | 105         |
+|    iterations           | 6           |
+|    time_elapsed         | 116         |
+|    total_timesteps      | 12288       |
+| train/                  |             |
+|    approx_kl            | 0.004369362 |
+|    clip_fraction        | 0.0407      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -5.82       |
+|    explained_variance   | 0.0675      |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.072       |
+|    n_updates            | 50          |
+|    policy_gradient_loss | -0.00382    |
+|    std                  | 1.04        |
+|    value_loss           | 0.345       |
+-----------------------------------------
+------------------------------------------
+| rollout/                |              |
+|    ep_len_mean          | 75.3         |
+|    ep_rew_mean          | 3.79         |
+| time/                   |              |
+|    fps                  | 109          |
+|    iterations           | 7            |
+|    time_elapsed         | 130          |
+|    total_timesteps      | 14336        |
+| train/                  |              |
+|    approx_kl            | 0.0044628736 |
+|    clip_fraction        | 0.0448       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -5.82        |
+|    explained_variance   | 0.104        |
+|    learning_rate        | 0.0003       |
+|    loss                 | 0.0616       |
+|    n_updates            | 60           |
+|    policy_gradient_loss | -0.00448     |
+|    std                  | 1.04         |
+|    value_loss           | 0.346        |
+------------------------------------------
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 76.9        |
+|    ep_rew_mean          | 3.78        |
+| time/                   |             |
+|    fps                  | 112         |
+|    iterations           | 8           |
+|    time_elapsed         | 145         |
+|    total_timesteps      | 16384       |
+| train/                  |             |
+|    approx_kl            | 0.005836135 |
+|    clip_fraction        | 0.0455      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -5.84       |
+|    explained_variance   | 0.188       |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.164       |
+|    n_updates            | 70          |
+|    policy_gradient_loss | -0.00483    |
+|    std                  | 1.04        |
+|    value_loss           | 0.392       |
+-----------------------------------------
+Traceback (most recent call last):
+  File "/home/xf/Desktop/armThrow/train.py", line 556, in <module>
+    main(args.config, render=render_override)
+  File "/home/xf/Desktop/armThrow/train.py", line 525, in main
+    model.learn(
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/ppo/ppo.py", line 311, in learn
+    return super().learn(
+           ^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/on_policy_algorithm.py", line 324, in learn
+    continue_training = self.collect_rollouts(self.env, callback, self.rollout_buffer, n_rollout_steps=self.n_steps)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/on_policy_algorithm.py", line 218, in collect_rollouts
+    new_obs, rewards, dones, infos = env.step(clipped_actions)
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/vec_env/base_vec_env.py", line 222, in step
+    return self.step_wait()
+           ^^^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/vec_env/dummy_vec_env.py", line 71, in step_wait
+    obs, self.reset_infos[env_idx] = self.envs[env_idx].reset()
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/monitor.py", line 83, in reset
+    return self.env.reset(**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xf/Desktop/armThrow/train.py", line 290, in reset
+    p.resetSimulation(physicsClientId=self.client)
+KeyboardInterrupt

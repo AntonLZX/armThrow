@@ -32,7 +32,6 @@ algo:
 logging:
   name: "run-name" # <--CHANGE ME-->
   save_dir: "runs"
-  gif_every_n_episodes: 100
   use_wandb: true
   project: "arm-throw"
   entity: "nus-me5406"

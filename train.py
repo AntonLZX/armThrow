@@ -22,13 +22,13 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.callbacks import CallbackList
 
 class EpisodeRecorderCallback(BaseCallback):
-    """Records the first episode as a GIF."""
-    def __init__(self, save_path=None, env_cfg=None, verbose=0):
+    """Records rollout GIFs every N completed episodes."""
+    def __init__(self, save_path=None, env_cfg=None, every_n_episodes=100, verbose=0):
         super().__init__(verbose)
         self.save_path = save_path
         self.env_cfg = env_cfg
+        self.every_n_episodes = max(1, int(every_n_episodes))
         self.episode_count = 0
-        self.first_episode_recorded = False
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
@@ -37,14 +37,12 @@ class EpisodeRecorderCallback(BaseCallback):
         for done, info in zip(dones, infos):
             if done and "episode" in info:
                 self.episode_count += 1
-                if self.episode_count == 1 and not self.first_episode_recorded:
-                    # First episode complete - record next episode
-                    print(f"Recording first episode to GIF...")
-                    self.record_episode()
-                    self.first_episode_recorded = True
+                if self.episode_count % self.every_n_episodes == 0:
+                    print(f"Recording episode {self.episode_count} to GIF...")
+                    self.record_episode(self.episode_count)
         return True
 
-    def record_episode(self):
+    def record_episode(self, episode_number):
         """Records one episode and saves as GIF."""
         
         if self.env_cfg is None:
@@ -75,10 +73,10 @@ class EpisodeRecorderCallback(BaseCallback):
 
         # Save GIF
         if frames and self.save_path:
-            gif_path = Path(self.save_path) / "first_episode.gif"
+            gif_path = Path(self.save_path) / f"episode_{episode_number:05d}.gif"
             try:
                 imageio.mimsave(str(gif_path), frames, fps=30)
-                print(f"✓ Saved first episode GIF ({len(frames)} frames) to {gif_path}")
+                print(f"Saved episode {episode_number} GIF ({len(frames)} frames) to {gif_path}")
             except Exception as e:
                 print(f"Error saving GIF: {e}")
         else:
@@ -250,6 +248,7 @@ class ArmThrowEnv(gym.Env):
         self.max_steps = cfg["max_steps"]
         self.end_effector_link_index = cfg["end_effector_link_index"]
         self.torque_scale = cfg["torque_scale"]
+        self.release_success_bonus = float(cfg.get("release_success_bonus", 1.0))
 
         self.client = p.connect(p.GUI if self.render_enabled else p.DIRECT)
         p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.client)
@@ -341,6 +340,7 @@ class ArmThrowEnv(gym.Env):
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
         action = np.clip(action, -1.0, 1.0)
+        released_this_step = False
 
         # Convert action (angular acceleration) to velocity via integration
         # a_desired = action[:3] * accel_scale
@@ -377,6 +377,7 @@ class ArmThrowEnv(gym.Env):
             p.removeConstraint(self.cid, physicsClientId=self.client)
             self.cid = None
             self.released = True
+            released_this_step = True
 
         p.stepSimulation(physicsClientId=self.client)
         self.step_count += 1
@@ -399,6 +400,9 @@ class ArmThrowEnv(gym.Env):
             # Ball in air: accumulate distance-based reward
             reward = float(np.exp(-1.5 * dist_to_target))
         # else: Ball landed, reward = 0 until landing bonus below
+
+        if released_this_step:
+            reward += self.release_success_bonus
 
         terminated = False
         truncated = False
@@ -480,14 +484,22 @@ def main(config_path="configs/base.yaml", render=None):
         seed=cfg["seed"],
         tensorboard_log=str(run_dir / "tb"),
     )
+    print(f"Training device selected: {model.device}")
 
     logger = configure(str(run_dir), ["stdout", "csv"])
     model.set_logger(logger)
 
     callbacks = []
 
-    # Add episode recorder callback
-    callbacks.append(EpisodeRecorderCallback(save_path=run_dir, env_cfg=cfg["env"], verbose=1))
+    gif_every_n_episodes = cfg.get("logging", {}).get("gif_every_n_episodes", 10)
+    callbacks.append(
+        EpisodeRecorderCallback(
+            save_path=run_dir,
+            env_cfg=cfg["env"],
+            every_n_episodes=gif_every_n_episodes,
+            verbose=1,
+        )
+    )
 
     if cfg["logging"]["use_wandb"]:
         if not WANDB_AVAILABLE:

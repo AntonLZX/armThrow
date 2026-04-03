@@ -1,0 +1,105 @@
+Recording episode 10 to GIF...
+Saved episode 10 GIF (240 frames) to runs/20260403-160035_ppo_arm_throw_91d9f08f/episode_00010.gif
+Recording episode 20 to GIF...
+Saved episode 20 GIF (240 frames) to runs/20260403-160035_ppo_arm_throw_91d9f08f/episode_00020.gif
+---------------------------------
+| rollout/           |          |
+|    ep_len_mean     | 73.1     |
+|    ep_rew_mean     | 3.52     |
+| time/              |          |
+|    fps             | 39       |
+|    iterations      | 1        |
+|    time_elapsed    | 51       |
+|    total_timesteps | 2048     |
+---------------------------------
+Recording episode 30 to GIF...
+Saved episode 30 GIF (240 frames) to runs/20260403-160035_ppo_arm_throw_91d9f08f/episode_00030.gif
+Recording episode 40 to GIF...
+Saved episode 40 GIF (240 frames) to runs/20260403-160035_ppo_arm_throw_91d9f08f/episode_00040.gif
+Recording episode 50 to GIF...
+Saved episode 50 GIF (240 frames) to runs/20260403-160035_ppo_arm_throw_91d9f08f/episode_00050.gif
+Recording episode 60 to GIF...
+Saved episode 60 GIF (240 frames) to runs/20260403-160035_ppo_arm_throw_91d9f08f/episode_00060.gif
+------------------------------------------
+| rollout/                |              |
+|    ep_len_mean          | 68.2         |
+|    ep_rew_mean          | 3.32         |
+| time/                   |              |
+|    fps                  | 29           |
+|    iterations           | 2            |
+|    time_elapsed         | 139          |
+|    total_timesteps      | 4096         |
+| train/                  |              |
+|    approx_kl            | 0.0046968674 |
+|    clip_fraction        | 0.0287       |
+|    clip_range           | 0.2          |
+|    entropy_loss         | -5.69        |
+|    explained_variance   | -0.302       |
+|    learning_rate        | 0.0003       |
+|    loss                 | -0.0437      |
+|    n_updates            | 10           |
+|    policy_gradient_loss | -0.00485     |
+|    std                  | 1.01         |
+|    value_loss           | 0.0713       |
+------------------------------------------
+/home/xf/Desktop/armThrow/train.py:180: RuntimeWarning: Mean of empty slice
+  "valid/mean_final_distance": float(np.nanmean(final_distances)),
+Recording episode 70 to GIF...
+Saved episode 70 GIF (240 frames) to runs/20260403-160035_ppo_arm_throw_91d9f08f/episode_00070.gif
+Recording episode 80 to GIF...
+Saved episode 80 GIF (240 frames) to runs/20260403-160035_ppo_arm_throw_91d9f08f/episode_00080.gif
+-----------------------------------------
+| rollout/                |             |
+|    ep_len_mean          | 69.7        |
+|    ep_rew_mean          | 3.43        |
+| time/                   |             |
+|    fps                  | 32          |
+|    iterations           | 3           |
+|    time_elapsed         | 191         |
+|    total_timesteps      | 6144        |
+| train/                  |             |
+|    approx_kl            | 0.006195615 |
+|    clip_fraction        | 0.0456      |
+|    clip_range           | 0.2         |
+|    entropy_loss         | -5.71       |
+|    explained_variance   | 0.0172      |
+|    learning_rate        | 0.0003      |
+|    loss                 | 0.000247    |
+|    n_updates            | 20          |
+|    policy_gradient_loss | -0.00465    |
+|    std                  | 1.01        |
+|    value_loss           | 0.148       |
+-----------------------------------------
+Recording episode 90 to GIF...
+Traceback (most recent call last):
+  File "/home/xf/Desktop/armThrow/train.py", line 561, in <module>
+    main(args.config, render=render_override)
+  File "/home/xf/Desktop/armThrow/train.py", line 530, in main
+    model.learn(
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/ppo/ppo.py", line 311, in learn
+    return super().learn(
+           ^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/on_policy_algorithm.py", line 324, in learn
+    continue_training = self.collect_rollouts(self.env, callback, self.rollout_buffer, n_rollout_steps=self.n_steps)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/on_policy_algorithm.py", line 224, in collect_rollouts
+    if not callback.on_step():
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/callbacks.py", line 114, in on_step
+    return self._on_step()
+           ^^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/callbacks.py", line 223, in _on_step
+    continue_training = callback.on_step() and continue_training
+                        ^^^^^^^^^^^^^^^^^^
+  File "/home/xf/anaconda3/envs/armThrow/lib/python3.11/site-packages/stable_baselines3/common/callbacks.py", line 114, in on_step
+    return self._on_step()
+           ^^^^^^^^^^^^^^^
+  File "/home/xf/Desktop/armThrow/train.py", line 42, in _on_step
+    self.record_episode(self.episode_count)
+  File "/home/xf/Desktop/armThrow/train.py", line 65, in record_episode
+    frame = self.capture_frame(rec_env)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xf/Desktop/armThrow/train.py", line 117, in capture_frame
+    _, _, rgb_array, _, _ = p.getCameraImage(
+                            ^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
