@@ -28,9 +28,10 @@ except Exception:
 
 class EpisodeRecorderCallback(BaseCallback):
     """Records the first episode as a GIF."""
-    def __init__(self, save_path=None, verbose=0):
+    def __init__(self, save_path=None, env_cfg=None, verbose=0):
         super().__init__(verbose)
         self.save_path = save_path
+        self.env_cfg = env_cfg
         self.episode_count = 0
         self.first_episode_recorded = False
 
@@ -42,49 +43,61 @@ class EpisodeRecorderCallback(BaseCallback):
             if done and "episode" in info:
                 self.episode_count += 1
                 if self.episode_count == 1 and not self.first_episode_recorded:
-                    # First episode complete
-                    if hasattr(self.model.env, "envs"):
-                        # VecEnv
-                        env = self.model.env.envs[0]
-                    else:
-                        # Single env
-                        env = self.model.env
-                    
-                    # Record next episode
-                    self.record_episode(env)
+                    # First episode complete - record next episode
+                    print(f"Recording first episode to GIF...")
+                    self.record_episode()
                     self.first_episode_recorded = True
         return True
 
-    def record_episode(self, env):
+    def record_episode(self):
         """Records one episode and saves as GIF."""
         if not IMAGEIO_AVAILABLE:
             print("Warning: imageio not installed. Skipping GIF recording.")
             return
+        
+        if self.env_cfg is None:
+            print("Warning: env_cfg not provided. Skipping GIF recording.")
+            return
+
+        # Create a fresh environment for recording (non-rendering)
+        from pathlib import Path
+        rec_cfg = self.env_cfg.copy()
+        rec_cfg["render"] = False
+        rec_env = ArmThrowEnv(rec_cfg)
 
         frames = []
-        obs, _ = env.reset()
+        obs, _ = rec_env.reset()
         done = False
         truncated = False
 
         while not (done or truncated):
             # Capture frame
-            frame = self.capture_frame(env)
+            frame = self.capture_frame(rec_env)
             if frame is not None:
                 frames.append(frame)
 
             action, _ = self.model.predict(obs, deterministic=True)
-            obs, reward, done, truncated, info = env.step(action)
+            obs, reward, done, truncated, info = rec_env.step(action)
+
+        rec_env.close()
 
         # Save GIF
         if frames and self.save_path:
             gif_path = Path(self.save_path) / "first_episode.gif"
-            imageio.mimsave(str(gif_path), frames, fps=30)
-            if self.verbose > 0:
-                print(f"Saved first episode GIF to {gif_path}")
+            try:
+                imageio.mimsave(str(gif_path), frames, fps=30)
+                print(f"✓ Saved first episode GIF ({len(frames)} frames) to {gif_path}")
+            except Exception as e:
+                print(f"Error saving GIF: {e}")
+        else:
+            print(f"Warning: No frames captured (frames={len(frames)}, save_path={self.save_path})")
 
     def capture_frame(self, env):
         """Capture a frame from PyBullet."""
         try:
+            if not hasattr(env, 'client') or env.client is None:
+                return None
+                
             width = 640
             height = 480
             
@@ -122,8 +135,7 @@ class EpisodeRecorderCallback(BaseCallback):
             # Convert to uint8 and return
             return np.array(rgb_array, dtype=np.uint8)[:, :, :3]
         except Exception as e:
-            if self.verbose > 0:
-                print(f"Error capturing frame: {e}")
+            print(f"Error capturing frame: {e}")
             return None
 
 try:
@@ -483,7 +495,7 @@ def main(config_path="configs/base.yaml", render=None):
     callbacks = []
 
     # Add episode recorder callback
-    callbacks.append(EpisodeRecorderCallback(save_path=run_dir, verbose=1))
+    callbacks.append(EpisodeRecorderCallback(save_path=run_dir, env_cfg=cfg["env"], verbose=1))
 
     if cfg["logging"]["use_wandb"]:
         if not WANDB_AVAILABLE:
