@@ -10,7 +10,7 @@ env:
   release_success_bonus: 1.0
 
   target:
-    mode: "fixed"   # fixed or random
+    mode: "random"   # fixed or random
     fixed: [2.0, 0.0, 0.5]
     random:
       x: [1.8, 2.2]
@@ -19,7 +19,7 @@ env:
 
 algo:
   name: "PPO"
-  total_timesteps: 100000
+  total_timesteps: 10e6
   learning_rate: 0.0003
   n_steps: 2048
   batch_size: 64

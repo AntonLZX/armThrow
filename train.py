@@ -23,7 +23,7 @@ from stable_baselines3.common.callbacks import CallbackList
 
 class EpisodeRecorderCallback(BaseCallback):
     """Records rollout GIFs every N completed episodes."""
-    def __init__(self, save_path=None, env_cfg=None, every_n_episodes=100, verbose=0):
+    def __init__(self, save_path=None, env_cfg=None, every_n_episodes=200, verbose=0):
         super().__init__(verbose)
         self.save_path = save_path
         self.env_cfg = env_cfg
