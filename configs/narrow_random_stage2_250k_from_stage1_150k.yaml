@@ -1,29 +1,30 @@
 seed: 42
-run_name: "ppo_arm_throw"
+run_name: "ppo_arm_throw_narrow_random_stage2_250k_from_stage1_150k"
 
 env:
   arm_urdf: "arm.urdf"
-  render: true
+  render: false
   max_steps: 240
   end_effector_link_index: 3
   accel_scale: 50.0
   motor_force_limit: 50.0
   joint_velocity_limit: 10.0
   target_radius: 0.1
-  release_success_bonus: 1.0
+  release_success_bonus: 0.0
+  reward_mode: "distance_progress"
   observation_mode: "arm_target_release"
 
   target:
-    mode: "random"   # fixed or random
+    mode: "random"
     fixed: [2.0, 0.0, 0.5]
     random:
-      x: [1.8, 2.2]
-      y: [-0.2, 0.2]
-      z: [0.4, 0.6]
+      x: [1.95, 2.05]
+      y: [-0.05, 0.05]
+      z: [0.45, 0.55]
 
 algo:
   name: "PPO"
-  total_timesteps: 10000000
+  total_timesteps: 250000
   learning_rate: 0.0003
   n_steps: 2048
   batch_size: 64
@@ -36,11 +37,11 @@ algo:
 logging:
   name: "auto"
   save_dir: "runs"
-  gif_every_n_episodes: 100
+  gif_every_n_episodes: 1000000
   use_wandb: true
   project: "arm-throw"
   entity: "nus-me5406"
-  tags: ["ppo", "pybullet"]
-  notes: "testing wandb + tensorboard"
+  tags: ["ppo", "pybullet", "curriculum", "narrow-random", "stage2", "250k", "switch-search"]
+  notes: "Curriculum stage 2 search: 250k narrow-random from stage1 150k"
   sync_tensorboard: false
   save_model: true

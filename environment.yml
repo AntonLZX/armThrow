@@ -8,7 +8,7 @@ dependencies:
   - pip:
       - pybullet
       - stable-baselines3
+      - gymnasium
       - wandb
       - PyYAML
       - imageio
-prefix: /opt/anaconda3/envs/armThrow
