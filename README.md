@@ -11,6 +11,7 @@ The current codebase trains a 3-DOF arm to throw a ball at a 3D target. The targ
   - [`env.py`](env.py)
   - [`callbacks.py`](callbacks.py)
   - [`config.py`](config.py)
+- The target is now visualized directly in the environment and recorded GIFs.
 - The current recommended setup uses:
   - `reward_mode: distance_progress`
   - `observation_mode: arm_target_release`
@@ -23,6 +24,7 @@ The current codebase trains a 3-DOF arm to throw a ball at a 3D target. The targ
 - [`env.py`](env.py): environment dynamics, reward, observation, termination logic
 - [`callbacks.py`](callbacks.py): GIF recording, W&B logging, eval callbacks
 - [`config.py`](config.py): config loading, normalization, run directory helpers
+- [`capture_success.py`](capture_success.py): local utility to search for a successful rollout and save a GIF/PNG proof
 - [`arm.urdf`](arm.urdf): 3-DOF arm model
 - [`visualize_arm.py`](visualize_arm.py): manual visualization/debug script
 - [`configs/base.yaml`](configs/base.yaml): default interactive training config
@@ -69,6 +71,7 @@ python train.py --config configs/base.yaml
 
 Notes:
 - `base.yaml` keeps `render: true` by default, so this opens the PyBullet GUI.
+- The target marker is rendered directly in the scene. On success, it highlights green.
 - For long runs, use:
 
 ```bash
@@ -92,6 +95,33 @@ python train.py --config <config.yaml> --seed 123
 ```
 
 The resolved config actually used for a run is saved to `runs/<run>/config.yaml`.
+
+### 3. Capture a successful hit for visual proof
+
+If you want a GIF or final-frame image that shows the ball actually hitting the target:
+
+```bash
+python capture_success.py \
+  --config runs/<run_dir>/config.yaml \
+  --model runs/<run_dir>/model.zip \
+  --output-dir tmp/success_capture
+```
+
+This script:
+- rolls out the policy repeatedly until it finds a successful episode
+- saves a success GIF
+- saves the final success frame as a PNG
+- writes a text summary with `final_distance_to_target` and `target_radius`
+
+If deterministic rollout does not find a success quickly, retry with:
+
+```bash
+python capture_success.py \
+  --config runs/<run_dir>/config.yaml \
+  --model runs/<run_dir>/model.zip \
+  --output-dir tmp/success_capture \
+  --stochastic
+```
 
 ## Current Default Training Recipe
 
@@ -250,6 +280,8 @@ Important:
   - one fixed 3D target
 - `target.mode: random`
   - sample target coordinates from the configured ranges
+- `visualize_target: true`
+  - renders the target sphere, center marker, and success highlight in both GUI runs and recorded frames
 
 ### Success condition
 
@@ -292,5 +324,4 @@ Useful frozen configs in [`configs/`](configs):
 
 ## Known Limitations
 
-- The target is represented numerically but is not yet visualized in the GUI.
 - Training logic has been split into modules, but the repository is still small and intentionally lightweight rather than fully packaged.
