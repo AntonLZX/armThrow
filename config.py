@@ -84,16 +84,13 @@ def normalize_config(cfg):
     env["end_effector_link_index"] = _coerce_int(
         env.get("end_effector_link_index"), "env.end_effector_link_index", minimum=0
     )
-    legacy_torque_scale = env.get("torque_scale")
-    accel_scale_raw = env.get("accel_scale", legacy_torque_scale)
-    motor_force_limit_raw = env.get("motor_force_limit", legacy_torque_scale)
+    accel_scale_raw = env.get("accel_scale")
+    motor_force_limit_raw = env.get("motor_force_limit")
 
     if accel_scale_raw is None:
-        raise TypeError("env.accel_scale must be provided (or legacy env.torque_scale for backward compatibility)")
+        raise TypeError("env.accel_scale must be provided")
     if motor_force_limit_raw is None:
-        raise TypeError(
-            "env.motor_force_limit must be provided (or legacy env.torque_scale for backward compatibility)"
-        )
+        raise TypeError("env.motor_force_limit must be provided")
 
     env["accel_scale"] = _coerce_float(accel_scale_raw, "env.accel_scale", minimum=0.0)
     env["motor_force_limit"] = _coerce_float(
@@ -109,8 +106,6 @@ def normalize_config(cfg):
             "env.observation_mode must be 'arm_target_only', 'arm_target_release', or 'full_throw_state', "
             f"got {env['observation_mode']!r}"
         )
-    if legacy_torque_scale is not None:
-        env["torque_scale"] = _coerce_float(legacy_torque_scale, "env.torque_scale", minimum=0.0)
     env["release_success_bonus"] = _coerce_float(
         env.get("release_success_bonus", 1.0), "env.release_success_bonus"
     )

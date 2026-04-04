@@ -11,7 +11,6 @@ The current codebase trains a 3-DOF arm to throw a ball at a 3D target. The targ
   - [`env.py`](env.py)
   - [`callbacks.py`](callbacks.py)
   - [`config.py`](config.py)
-- [`armThrowEnv.py`](armThrowEnv.py) is a deprecated compatibility shim; the current training pipeline uses [`env.py`](env.py).
 - The current recommended setup uses:
   - `reward_mode: distance_progress`
   - `observation_mode: arm_target_release`
@@ -294,5 +293,4 @@ Useful frozen configs in [`configs/`](configs):
 ## Known Limitations
 
 - The target is represented numerically but is not yet visualized in the GUI.
-- [`armThrowEnv.py`](armThrowEnv.py) is kept only as a deprecated compatibility shim for older imports.
 - Training logic has been split into modules, but the repository is still small and intentionally lightweight rather than fully packaged.

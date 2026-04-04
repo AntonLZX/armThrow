@@ -16,8 +16,8 @@ class ArmThrowEnv(gym.Env):
         self.arm_urdf = cfg["arm_urdf"]
         self.max_steps = cfg["max_steps"]
         self.end_effector_link_index = cfg["end_effector_link_index"]
-        self.accel_scale = float(cfg.get("accel_scale", cfg.get("torque_scale", 50.0)))
-        self.motor_force_limit = float(cfg.get("motor_force_limit", cfg.get("torque_scale", 50.0)))
+        self.accel_scale = float(cfg["accel_scale"])
+        self.motor_force_limit = float(cfg["motor_force_limit"])
         self.joint_velocity_limit = float(cfg.get("joint_velocity_limit", 10.0))
         self.release_success_bonus = float(cfg.get("release_success_bonus", 1.0))
         self.reward_mode = cfg.get("reward_mode", "distance_progress")
