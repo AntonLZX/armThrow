@@ -23,6 +23,7 @@ class ArmThrowEnv(gym.Env):
         self.reward_mode = cfg.get("reward_mode", "distance_progress")
         self.target_radius = float(cfg.get("target_radius", 0.1))
         self.observation_mode = cfg.get("observation_mode", "arm_target_release")
+        self.visualize_target = bool(cfg.get("visualize_target", True))
         if self.reward_mode not in {"absolute_distance", "distance_progress"}:
             raise ValueError(
                 f"Unsupported reward_mode={self.reward_mode!r}; expected 'absolute_distance' or 'distance_progress'"
@@ -68,6 +69,11 @@ class ArmThrowEnv(gym.Env):
         self.action_norm_sum = 0.0
         self.cumulative_abs_joint_velocity = 0.0
         self.max_abs_joint_velocity = 0.0
+        self.target_shell_id = None
+        self.target_center_id = None
+        self.target_success_halo_id = None
+        self.target_debug_item_ids = []
+        self.target_success_text_id = None
 
     def _sample_target(self):
         target_cfg = self.cfg["target"]
@@ -106,6 +112,7 @@ class ArmThrowEnv(gym.Env):
             [0.1, 0.0, 1.0],
             physicsClientId=self.client,
         )
+        self._create_target_visuals()
 
         for j in range(self.n_joints):
             p.setJointMotorControl2(
@@ -152,6 +159,110 @@ class ArmThrowEnv(gym.Env):
         self.cumulative_abs_joint_velocity = 0.0
         self.max_abs_joint_velocity = 0.0
         return self._get_obs(), {}
+
+    def _create_visual_sphere(self, radius, rgba, position):
+        visual_shape_id = p.createVisualShape(
+            p.GEOM_SPHERE,
+            radius=float(radius),
+            rgbaColor=rgba,
+            physicsClientId=self.client,
+        )
+        return p.createMultiBody(
+            baseMass=0.0,
+            baseCollisionShapeIndex=-1,
+            baseVisualShapeIndex=visual_shape_id,
+            basePosition=[float(v) for v in position],
+            useMaximalCoordinates=True,
+            physicsClientId=self.client,
+        )
+
+    def _create_target_visuals(self):
+        self.target_shell_id = None
+        self.target_center_id = None
+        self.target_success_halo_id = None
+        self.target_debug_item_ids = []
+        self.target_success_text_id = None
+
+        if not self.visualize_target:
+            return
+
+        self.target_shell_id = self._create_visual_sphere(
+            radius=self.target_radius,
+            rgba=[1.0, 0.2, 0.2, 0.28],
+            position=self.target_pos,
+        )
+        center_radius = min(max(self.target_radius * 0.2, 0.018), 0.04)
+        self.target_center_id = self._create_visual_sphere(
+            radius=center_radius,
+            rgba=[1.0, 0.95, 0.25, 0.95],
+            position=self.target_pos,
+        )
+
+        line_half_length = max(self.target_radius * 1.35, 0.06)
+        x, y, z = [float(v) for v in self.target_pos]
+        line_specs = [
+            ([x - line_half_length, y, z], [x + line_half_length, y, z], [1.0, 0.35, 0.35]),
+            ([x, y - line_half_length, z], [x, y + line_half_length, z], [0.35, 0.95, 1.0]),
+            ([x, y, z - line_half_length], [x, y, z + line_half_length], [0.5, 1.0, 0.45]),
+            ([x, y, 0.02], [x, y, z], [1.0, 0.8, 0.3]),
+        ]
+        for line_from, line_to, color in line_specs:
+            debug_id = p.addUserDebugLine(
+                line_from,
+                line_to,
+                color,
+                lineWidth=2.0,
+                physicsClientId=self.client,
+            )
+            self.target_debug_item_ids.append(debug_id)
+
+        label_position = [x, y, z + max(self.target_radius * 1.5, 0.08)]
+        label_id = p.addUserDebugText(
+            f"TARGET r={self.target_radius:.2f}",
+            label_position,
+            textColorRGB=[1.0, 0.95, 0.25],
+            textSize=1.3,
+            physicsClientId=self.client,
+        )
+        self.target_debug_item_ids.append(label_id)
+
+    def _highlight_success(self):
+        if not self.visualize_target:
+            return
+
+        if self.target_shell_id is not None:
+            p.changeVisualShape(
+                self.target_shell_id,
+                -1,
+                rgbaColor=[0.2, 1.0, 0.35, 0.35],
+                physicsClientId=self.client,
+            )
+        if self.target_center_id is not None:
+            p.changeVisualShape(
+                self.target_center_id,
+                -1,
+                rgbaColor=[0.1, 1.0, 0.1, 1.0],
+                physicsClientId=self.client,
+            )
+        if self.target_success_halo_id is None:
+            self.target_success_halo_id = self._create_visual_sphere(
+                radius=self.target_radius * 1.45,
+                rgba=[0.2, 1.0, 0.35, 0.12],
+                position=self.target_pos,
+            )
+
+        text_position = [
+            float(self.target_pos[0]),
+            float(self.target_pos[1]),
+            float(self.target_pos[2] + max(self.target_radius * 2.0, 0.12)),
+        ]
+        self.target_success_text_id = p.addUserDebugText(
+            "SUCCESS",
+            text_position,
+            textColorRGB=[0.15, 1.0, 0.2],
+            textSize=1.5,
+            physicsClientId=self.client,
+        )
 
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
@@ -253,6 +364,7 @@ class ArmThrowEnv(gym.Env):
             success = True
             success_bonus_component += 10.0
             self.termination_type = "success"
+            self._highlight_success()
 
         if self.step_count >= self.max_steps:
             truncated = True

@@ -52,6 +52,7 @@ class EpisodeRecorderCallback(BaseCallback):
         obs, _ = rec_env.reset()
         done = False
         truncated = False
+        last_info = {}
 
         while not (done or truncated):
             frame = self.capture_frame(rec_env)
@@ -59,7 +60,13 @@ class EpisodeRecorderCallback(BaseCallback):
                 frames.append(frame)
 
             action, _ = self.model.predict(obs, deterministic=True)
-            obs, _, done, truncated, _ = rec_env.step(action)
+            obs, _, done, truncated, last_info = rec_env.step(action)
+
+        final_frame = self.capture_frame(rec_env)
+        if final_frame is not None:
+            frames.append(final_frame)
+            hold_count = 12 if float(last_info.get("success", 0.0)) >= 1.0 else 4
+            frames.extend([final_frame] * hold_count)
 
         rec_env.close()
 
