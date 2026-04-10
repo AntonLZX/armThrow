@@ -96,9 +96,69 @@ python train.py --config <config.yaml> --seed 123
 
 The resolved config actually used for a run is saved to `runs/<run>/config.yaml`.
 
-### 3. Capture a successful hit for visual proof
+## Evaluation
 
-If you want a GIF or final-frame image that shows the ball actually hitting the target:
+Two scripts are provided for evaluating a trained model after training is complete.
+
+### test.py — Quantitative validation
+
+`test.py` loads a `model.zip` and runs four structured test suites, printing a full report to stdout.
+
+```bash
+# Minimal usage — uses built-in defaults matching the final curriculum stage
+python test.py --model ppo_arm_throw.zip
+
+# With the config that was used during training (recommended)
+python test.py --model runs/<run>/model.zip --config runs/<run>/config.yaml
+
+# More episodes for stable statistics
+python test.py --model ppo_arm_throw.zip --n-episodes 100
+
+# With PyBullet GUI (slow, useful for visual debugging)
+python test.py --model ppo_arm_throw.zip --render
+```
+
+**Suite 1 — Core Performance** runs `--n-episodes` episodes against the random target range and
+reports the env's built-in metrics:
+
+- Success rate and release rate
+- Mean / std reward and mean episode length
+- Mean final distance and mean minimum distance to target
+- Termination breakdown (success / ground miss / timeout variants)
+
+**Suite 2 — Sanity Checks** runs eight targeted assertions:
+
+| Check | What it verifies |
+|---|---|
+| Ball release | Ball is released (constraint removed) in at least one episode |
+| Release timing | Mean release step is well before the timeout limit |
+| Joint velocity limits | `max_abs_joint_velocity` never exceeds the configured `joint_velocity_limit` |
+| Action bounds | All model outputs stay within `[-1, 1]` (the action space contract) |
+| Joint angle range | Joint angles never exceed ±4π (guards against unconstrained spinning) |
+| Release ball speed | Speed at release is physically plausible (0.01–30 m/s) |
+| Gravity / physics | Ball z-position descends from its peak after release (gravity is active) |
+| Ball movement | Ball travels forward at least 0.5 m from the arm base after release |
+
+**Suite 3 — Progressive Difficulty** tests success rate across five target tiers to check that
+performance degrades gracefully as difficulty increases:
+
+| Tier | Target |
+|---|---|
+| Easy | Fixed center [2.0, 0.0, 0.5] — trained distribution centre |
+| Medium | Random [1.8–2.2, ±0.2, 0.4–0.6] — trained range |
+| Hard | Random [1.5–2.5, ±0.5, 0.3–0.7] — wider than training |
+| Extreme | Fixed far target [3.0, 0.0, 0.5] — out-of-distribution distance |
+| Aerial | Fixed high target [2.0, 0.0, 1.5] — out-of-distribution height |
+
+Also checks that success rate is monotonically non-increasing with difficulty (with 5% slack for
+episode variance).
+
+**Suite 4 — Summary** prints a combined PASS / FAIL verdict for all checks.
+
+### capture_success.py — Visual proof (GIF + PNG)
+
+`capture_success.py` rolls out the policy repeatedly and saves rendered clips of the best success
+and the worst failure found within a fixed attempt budget.
 
 ```bash
 python capture_success.py \
@@ -107,13 +167,7 @@ python capture_success.py \
   --output-dir tmp/success_capture
 ```
 
-This script:
-- rolls out the policy repeatedly until it finds a successful episode
-- saves a success GIF
-- saves the final success frame as a PNG
-- writes a text summary with `final_distance_to_target` and `target_radius`
-
-If deterministic rollout does not find a success quickly, retry with:
+If deterministic rollout does not find a success quickly, retry with stochastic actions:
 
 ```bash
 python capture_success.py \
@@ -122,6 +176,27 @@ python capture_success.py \
   --output-dir tmp/success_capture \
   --stochastic
 ```
+
+For each captured episode the script writes three files:
+
+- `success_seed<N>.gif` / `worst_failure_seed<N>.gif` — animated rollout
+- `success_seed<N>_final.png` / `worst_failure_seed<N>_final.png` — final frame
+- `success_seed<N>_summary.txt` / `worst_failure_seed<N>_summary.txt` — text record with
+  `final_distance_to_target`, `min_distance_to_target`, `release_step`, `release_ball_speed`,
+  `target`, `target_radius`, and `total_reward`
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--config` | *(required)* | Config YAML used to build the env |
+| `--model` | *(required)* | Path to `model.zip` |
+| `--output-dir` | `tmp/success_capture` | Directory to write GIF / PNG / summary |
+| `--seed` | `42` | Base evaluation seed |
+| `--max-attempts` | `50` | Episode budget to search for a success |
+| `--stochastic` | off | Use stochastic policy instead of deterministic rollout |
+
+The script exits with code `0` if a success was found, `1` otherwise.
 
 ## Current Default Training Recipe
 
