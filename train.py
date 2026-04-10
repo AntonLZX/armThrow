@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from stable_baselines3 import PPO
+from stable_baselines3 import A2C, DDPG, PPO, SAC, TD3
 from stable_baselines3.common.callbacks import CallbackList
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
@@ -20,6 +20,32 @@ from config import _coerce_int, load_config, make_run_dir, resolve_wandb_name, s
 from env import ArmThrowEnv
 
 
+_ALGO_CLASSES = {"PPO": PPO, "SAC": SAC, "TD3": TD3, "A2C": A2C, "DDPG": DDPG}
+
+# Which hyperparameter keys each algorithm accepts (beyond the shared ones)
+_ALGO_KEYS = {
+    "PPO":  {"learning_rate", "n_steps", "batch_size", "n_epochs", "gamma", "gae_lambda", "clip_range", "ent_coef"},
+    "A2C":  {"learning_rate", "n_steps", "gamma", "gae_lambda", "ent_coef"},
+    "SAC":  {"learning_rate", "batch_size", "gamma", "ent_coef", "tau", "buffer_size", "learning_starts", "train_freq"},
+    "TD3":  {"learning_rate", "batch_size", "gamma", "tau", "buffer_size", "learning_starts", "train_freq"},
+    "DDPG": {"learning_rate", "batch_size", "gamma", "tau", "buffer_size", "learning_starts", "train_freq"},
+}
+
+
+def _get_algo_class(name: str):
+    cls = _ALGO_CLASSES.get(name)
+    if cls is None:
+        raise ValueError(f"Unknown algorithm '{name}'. Choose from: {list(_ALGO_CLASSES)}")
+    return cls
+
+
+def _build_algo_kwargs(algo_name: str, algo_cfg: dict, seed: int, tb_log: str) -> dict:
+    accepted = _ALGO_KEYS[algo_name]
+    kwargs = {k: v for k, v in algo_cfg.items() if k in accepted}
+    kwargs.update(verbose=1, device="auto", seed=seed, tensorboard_log=tb_log)
+    return kwargs
+
+
 def main(config_path="configs/base.yaml", render=None, load_model_path=None, seed_override=None):
     cfg = load_config(config_path)
     if render is not None:
@@ -35,31 +61,20 @@ def main(config_path="configs/base.yaml", render=None, load_model_path=None, see
     env = ArmThrowEnv(cfg["env"])
     env = Monitor(env, filename=str(run_dir / "monitor.csv"))
 
+    algo_name = cfg["algo"].get("name", "PPO").upper()
+    algo_class = _get_algo_class(algo_name)
+
     if load_model_path:
         model_path = Path(load_model_path).expanduser().resolve()
         if not model_path.exists():
             raise FileNotFoundError(f"Initial model not found: {model_path}")
-        model = PPO.load(str(model_path), env=env, device="auto")
+        model = algo_class.load(str(model_path), env=env, device="auto")
         model.verbose = 1
         model.tensorboard_log = str(run_dir / "tb")
         print(f"Loaded initial weights from: {model_path}")
     else:
-        model = PPO(
-            "MlpPolicy",
-            env,
-            learning_rate=cfg["algo"]["learning_rate"],
-            n_steps=cfg["algo"]["n_steps"],
-            batch_size=cfg["algo"]["batch_size"],
-            n_epochs=cfg["algo"]["n_epochs"],
-            gamma=cfg["algo"]["gamma"],
-            gae_lambda=cfg["algo"]["gae_lambda"],
-            clip_range=cfg["algo"]["clip_range"],
-            ent_coef=cfg["algo"]["ent_coef"],
-            verbose=1,
-            device="auto",
-            seed=cfg["seed"],
-            tensorboard_log=str(run_dir / "tb"),
-        )
+        kwargs = _build_algo_kwargs(algo_name, cfg["algo"], cfg["seed"], str(run_dir / "tb"))
+        model = algo_class("MlpPolicy", env, **kwargs)
     print(f"Training device selected: {model.device}")
 
     logger = configure(str(run_dir), ["stdout", "csv"])

@@ -1,0 +1,40 @@
+seed: 42
+run_name: "physics_baseline"
+
+env:
+  arm_urdf: "arm.urdf"
+  render: false
+  max_steps: 240
+  end_effector_link_index: 3
+  accel_scale: 50.0
+  motor_force_limit: 50.0
+  joint_velocity_limit: 10.0
+  target_radius: 0.1
+  release_success_bonus: 1.0
+  reward_mode: "distance_progress"
+  observation_mode: "full_throw_state"  # required — provides ball_vel in obs
+
+  target:
+    mode: "random"
+    fixed: [2.0, 0.0, 0.5]
+    random:
+      x: [1.8, 2.2]
+      y: [-0.2, 0.2]
+      z: [0.4, 0.6]
+
+algo:
+  name: "Physics"
+  windup_steps: 30      # steps to wind joints backward before throwing
+  swing_scale: 1.0      # joint velocity command magnitude during throw (0–1)
+  n_eval_episodes: 200  # episodes to evaluate over
+
+logging:
+  name: "auto"
+  save_dir: "runs"
+  use_wandb: true
+  project: "arm-throw"
+  entity: "nus-me5406"
+  tags: ["physics", "baseline", "pybullet"]
+  notes: "Scripted physics baseline — analytical projectile release"
+  sync_tensorboard: false
+  save_model: true
