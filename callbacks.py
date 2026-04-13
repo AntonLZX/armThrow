@@ -123,12 +123,23 @@ class WandbEvalCallback(BaseCallback):
         self.eval_env = eval_env
         self.eval_freq = eval_freq
         self.n_eval_episodes = n_eval_episodes
+        self._next_eval_at = eval_freq   # first eval fires at or after this timestep
 
     def _on_step(self) -> bool:
-        if self.num_timesteps % self.eval_freq != 0:
+        # Use a threshold comparison instead of modulo.
+        # Modulo never fires when rollout size (e.g. PPO n_steps=2048) doesn't
+        # divide evenly into eval_freq (e.g. 5000): 2048 % 5000 is never 0.
+        if self.num_timesteps < self._next_eval_at:
             return True
+        self._next_eval_at = self.num_timesteps + self.eval_freq
 
         metrics = evaluate_episodes(self.model, self.eval_env, self.n_eval_episodes)
+        sr = metrics.get("valid/success_rate", float("nan"))
+        md = metrics.get("valid/mean_final_distance", float("nan"))
+        print(
+            f"[eval @ {self.num_timesteps:,}]  "
+            f"success_rate={sr:.3f}  mean_final_dist={md:.3f}"
+        )
         wandb.log({**metrics, "global_timestep": int(self.num_timesteps)}, step=self.num_timesteps)
         return True
 
@@ -159,10 +170,12 @@ class WandbTrainStatsCallback(BaseCallback):
     def __init__(self, log_freq=1000, verbose=0):
         super().__init__(verbose)
         self.log_freq = log_freq
+        self._next_log_at = log_freq
 
     def _on_step(self) -> bool:
-        if self.num_timesteps % self.log_freq != 0:
+        if self.num_timesteps < self._next_log_at:
             return True
+        self._next_log_at = self.num_timesteps + self.log_freq
 
         values = getattr(self.logger, "name_to_value", {})
         payload = {"global_timestep": int(self.num_timesteps)}

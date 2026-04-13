@@ -164,7 +164,8 @@ class PhysicsBaseline:
     _V_MAX_AT_UNIT_SCALE = 12.3  # m/s
 
     # Maximum steps per phase before the controller forces a transition
-    _MAX_YAW_STEPS    = 60   # 1.0 s  — time to converge joint 0 to target yaw
+    _MAX_YAW_STEPS    = 40   # 0.67 s — PD control converges faster than pure-P;
+                             #          saved 20 steps are available for retries
     _MAX_WINDUP_STEPS = 80   # 1.3 s  — upper bound; per-target value is shorter
     _MAX_SWING_STEPS  = 80   # 1.3 s  — if no release by here, retry
 
@@ -186,6 +187,7 @@ class PhysicsBaseline:
         # Per-episode computed parameters (set in _compute_throw_params)
         self._target_yaw = 0.0
         self._effective_scale = self.swing_scale
+        self._original_scale = self.swing_scale   # stored for retry bracketing
         self._effective_windup_steps = self.windup_steps
         self._params_ready = False
 
@@ -203,7 +205,7 @@ class PhysicsBaseline:
           _target_yaw              — direction joint 0 must face
           _effective_scale         — fraction of swing_scale to use (tuned to
                                      the minimum speed that reaches the target,
-                                     with a 30% margin)
+                                     with a 50% margin)
           _effective_windup_steps  — how many steps to spend in windup phase,
                                      scaled to the required throw arc
 
@@ -241,11 +243,15 @@ class PhysicsBaseline:
         else:
             v_min = self._V_MAX_AT_UNIT_SCALE * self.swing_scale  # fallback: use max
 
-        # Target speed: 30% above minimum so the discriminant is comfortably positive
+        # Target speed: 50% above minimum so the discriminant is comfortably positive
+        # and the release window is wide enough to be caught reliably.
         v_max    = self._V_MAX_AT_UNIT_SCALE * self.swing_scale
-        v_target = min(v_min * 1.3, v_max)
-        # Floor at 40% of max so the arm always has enough momentum to swing cleanly
-        self._effective_scale = max(v_target / v_max, 0.4) * self.swing_scale
+        v_target = min(v_min * 1.5, v_max)
+        # Floor at 20% so close targets get a proportionate low-speed swing
+        # (40% was too high: it forced ~5 m/s for targets needing only 3 m/s,
+        # making the trajectory-check window extremely narrow).
+        self._effective_scale = max(v_target / v_max, 0.2) * self.swing_scale
+        self._original_scale  = self._effective_scale  # stored for retry bracketing
 
         # --- Windup depth: enough arc to sweep through the release window ---
         # The release window is the range of arm angles at which _trajectory_hits
@@ -307,27 +313,36 @@ class PhysicsBaseline:
             self._compute_throw_params(obs)
 
         joint_ang = obs[0:3]
+        j0_ang_vel = float(obs[3])   # actual joint 0 angular velocity (for PD yaw)
         ball_pos  = obs[6:9]
         ball_vel  = obs[9:12]
         target    = obs[12:15]
         radius    = float(self.env_cfg.get("target_radius", 0.1))
+        joint_vel_limit = float(self.env_cfg.get("joint_velocity_limit", 10.0))
 
         self._phase_step += 1
         s = self._effective_scale
 
-        # Shared yaw correction term (used with different gains per phase)
-        yaw_error   = self._target_yaw - float(joint_ang[0])
-        yaw_error   = (yaw_error + math.pi) % (2.0 * math.pi) - math.pi  # wrap to [-π, π]
-        yaw_aligned = abs(yaw_error) < 0.05   # ~3° tolerance
+        # Shared yaw error (wrapped to [-π, π])
+        yaw_error = self._target_yaw - float(joint_ang[0])
+        yaw_error = (yaw_error + math.pi) % (2.0 * math.pi) - math.pi
+        # Tighter tolerance: 0.03 rad (~1.7°).  At 5 m/s to a 2m target,
+        # 3° gives ~0.1m lateral deviation — right at the 0.1m radius edge.
+        yaw_aligned = abs(yaw_error) < 0.03
 
         # ------------------------------------------------------------------
         # Phase yaw_align
-        # Only joint 0 moves.  Joints 1 & 2 are held at zero velocity so
-        # they do not interfere with the alignment dynamics.
-        # Transitions when yaw error is within tolerance or step cap is hit.
+        # PD control on joint 0 (obs[3] = actual angular velocity) to damp
+        # oscillation and converge faster than pure-P.
+        # Joints 1 & 2 are driven to zero so they start the windup from rest.
         # ------------------------------------------------------------------
         if self._phase == "yaw_align":
-            j0_vel = float(np.clip(yaw_error * 8.0, -self.swing_scale, self.swing_scale))
+            # Kp=8, Kd=2 — derivative term brakes the approach and prevents
+            # the overshoot that made pure-P waste many alignment steps.
+            j0_vel = float(np.clip(
+                yaw_error * 8.0 - j0_ang_vel * 2.0,
+                -self.swing_scale, self.swing_scale,
+            ))
             if yaw_aligned or self._phase_step >= self._MAX_YAW_STEPS:
                 self._phase      = "windup"
                 self._phase_step = 0
@@ -335,28 +350,43 @@ class PhysicsBaseline:
 
         # ------------------------------------------------------------------
         # Phase windup
-        # Joints 1 & 2 wind backward at full swing_scale to build energy.
-        # Joint 0 holds the aligned yaw with a gentle P-gain (the arm is
-        # already aligned; this just corrects small drift).
-        # Depth is _effective_windup_steps, capped at _MAX_WINDUP_STEPS.
+        # Joints 1 & 2 wind backward at effective_scale (not full swing_scale).
+        # Winding up at the same scale used for the throw means no deceleration
+        # phase at the start of swing — the arm transitions smoothly from
+        # -s·ω_max to +s·ω_max, cutting the wasted swing steps from ~30 to ~12.
+        # Exit early if the joints are already saturated at the target velocity.
         # ------------------------------------------------------------------
         elif self._phase == "windup":
-            j0_vel   = float(np.clip(yaw_error * 4.0, -self.swing_scale, self.swing_scale))
+            j0_vel   = float(np.clip(
+                yaw_error * 4.0 - j0_ang_vel * 1.0,
+                -self.swing_scale, self.swing_scale,
+            ))
             max_wind = min(self._effective_windup_steps, self._MAX_WINDUP_STEPS)
-            if self._phase_step >= max_wind:
+            # Adaptive early exit: joints 1 & 2 have reached target winding velocity
+            joints_wound_up = (
+                float(obs[4]) <= -s * joint_vel_limit * 0.85
+                and float(obs[5]) <= -s * joint_vel_limit * 0.85
+                and self._phase_step >= 5
+            )
+            if self._phase_step >= max_wind or joints_wound_up:
                 self._phase      = "swing"
                 self._phase_step = 0
-            return np.array([j0_vel, -self.swing_scale, -self.swing_scale, -1.0], dtype=np.float32)
+            return np.array([j0_vel, -s, -s, -1.0], dtype=np.float32)
 
         # ------------------------------------------------------------------
         # Phase swing
-        # Joints 1 & 2 swing forward at _effective_scale.
-        # Joint 0 holds yaw at reduced gain (0.15×) to avoid fighting the throw.
+        # Joints 1 & 2 drive forward at effective_scale.
+        # Joint 0 uses a very light PD correction (0.12×) to avoid fighting
+        # the throw while still correcting slow drift.
         # Release when _trajectory_hits() confirms the current trajectory hits.
-        # Retry from yaw_align if the swing step cap is reached without release.
+        # On failure, bracket the scale: attempt 1 tries 0.80×, attempt 2
+        # tries 1.20×, covering both "too fast" and "too slow" cases.
         # ------------------------------------------------------------------
         elif self._phase == "swing":
-            j0_vel = float(np.clip(yaw_error * 4.0, -self.swing_scale, self.swing_scale)) * 0.15
+            j0_vel = float(np.clip(
+                yaw_error * 4.0 - j0_ang_vel * 1.0,
+                -self.swing_scale, self.swing_scale,
+            )) * 0.12
 
             if self._trajectory_hits(ball_pos, ball_vel, target, radius):
                 return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
@@ -366,11 +396,17 @@ class PhysicsBaseline:
                     self._attempt       += 1
                     self._phase          = "yaw_align"
                     self._phase_step     = 0
-                    # Slightly increase scale in case the trajectory window was
-                    # just above the speed that the previous attempt reached
-                    self._effective_scale = min(
-                        self._effective_scale * 1.15, self.swing_scale
-                    )
+                    # Bracket: retry 1 tries lower, retry 2 tries higher.
+                    # The original strategy always increased scale, making
+                    # "too fast" failures progressively worse.
+                    if self._attempt == 1:
+                        self._effective_scale = max(
+                            self._original_scale * 0.80, 0.15
+                        )
+                    else:
+                        self._effective_scale = min(
+                            self._original_scale * 1.20, self.swing_scale
+                        )
 
             return np.array([j0_vel, s, s, -1.0], dtype=np.float32)
 
