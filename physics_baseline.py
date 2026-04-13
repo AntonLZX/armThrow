@@ -71,6 +71,7 @@ import yaml
 from callbacks import WANDB_AVAILABLE, wandb
 from config import _coerce_float, _coerce_int, make_run_dir, resolve_wandb_name, set_seed
 from env import ArmThrowEnv
+from metrics import evaluate_episodes
 
 
 # ---------------------------------------------------------------------------
@@ -455,96 +456,6 @@ class PhysicsBaseline:
 
 
 # ---------------------------------------------------------------------------
-# Evaluation  (same metric keys as WandbEvalCallback / train_imitation.py)
-# ---------------------------------------------------------------------------
-
-def _finite_mean(vals):
-    finite = [float(v) for v in vals if v is not None and np.isfinite(v)]
-    return float(np.mean(finite)) if finite else float("nan")
-
-
-def _finite_std(vals):
-    finite = [float(v) for v in vals if v is not None and np.isfinite(v)]
-    return float(np.std(finite)) if finite else float("nan")
-
-
-def evaluate(baseline, env_cfg, n_episodes, seed):
-    """
-    Run n_episodes with the PhysicsBaseline and return a metrics dict whose
-    keys match WandbEvalCallback (valid/*) and train_imitation (reward/, control/).
-    """
-    eval_cfg = {**env_cfg, "render": False}
-    env = ArmThrowEnv(eval_cfg)
-    env.reset(seed=seed)
-
-    lengths, final_dists, min_dists = [], [], []
-    successes, releases, release_steps, release_speeds = [], [], [], []
-    ground_misses, timeout_no_release, timeout_after_release = [], [], []
-    pre_release_penalties, shapings, release_bonuses = [], [], []
-    success_bonuses, failure_penalties = [], []
-    max_joint_vels, mean_joint_vels, action_norms = [], [], []
-
-    for ep in range(n_episodes):
-        obs, _ = env.reset()
-        baseline.reset_episode()
-        done = truncated = False
-        ep_len = 0
-        last_info = {}
-
-        while not (done or truncated):
-            action, _ = baseline.predict(obs)
-            obs, _, done, truncated, last_info = env.step(action)
-            ep_len += 1
-
-        lengths.append(ep_len)
-        final_dists.append(last_info.get("final_distance_to_target", np.nan))
-        min_dists.append(last_info.get("min_distance_to_target", np.nan))
-        successes.append(float(last_info.get("success", 0.0)))
-        releases.append(float(last_info.get("released", 0.0)))
-        release_steps.append(last_info.get("release_step", np.nan))
-        release_speeds.append(last_info.get("release_ball_speed", np.nan))
-        ground_misses.append(float(last_info.get("termination_ground_miss", 0.0)))
-        timeout_no_release.append(float(last_info.get("termination_timeout_no_release", 0.0)))
-        timeout_after_release.append(float(last_info.get("termination_timeout_after_release", 0.0)))
-        pre_release_penalties.append(last_info.get("reward_pre_release_penalty", np.nan))
-        shapings.append(last_info.get("reward_shaping_component", np.nan))
-        release_bonuses.append(last_info.get("reward_release_bonus_component", np.nan))
-        success_bonuses.append(last_info.get("reward_success_bonus_component", np.nan))
-        failure_penalties.append(last_info.get("reward_failure_penalty_component", np.nan))
-        max_joint_vels.append(last_info.get("max_abs_joint_velocity", np.nan))
-        mean_joint_vels.append(last_info.get("mean_abs_joint_velocity", np.nan))
-        action_norms.append(last_info.get("mean_action_norm", np.nan))
-
-        if (ep + 1) % max(1, n_episodes // 10) == 0:
-            sr = float(np.mean(successes))
-            print(f"  [{ep + 1:4d}/{n_episodes}] running success_rate={sr:.3f}")
-
-    env.close()
-
-    return {
-        "valid/mean_ep_length":          float(np.mean(lengths)),
-        "valid/success_rate":            float(np.mean(successes)),
-        "valid/release_rate":            float(np.mean(releases)),
-        "valid/mean_final_distance":     _finite_mean(final_dists),
-        "valid/std_final_distance":      _finite_std(final_dists),
-        "valid/min_distance_to_target":  _finite_mean(min_dists),
-        "valid/mean_release_step":       _finite_mean(release_steps),
-        "valid/mean_release_ball_speed": _finite_mean(release_speeds),
-        "valid/ground_miss_rate":        float(np.mean(ground_misses)),
-        "valid/timeout_no_release_rate": float(np.mean(timeout_no_release)),
-        "valid/timeout_after_release_rate": float(np.mean(timeout_after_release)),
-        "reward/pre_release_penalty":    _finite_mean(pre_release_penalties),
-        "reward/shaping":                _finite_mean(shapings),
-        "reward/release_bonus":          _finite_mean(release_bonuses),
-        "reward/success_bonus":          _finite_mean(success_bonuses),
-        "reward/failure_penalty":        _finite_mean(failure_penalties),
-        "control/max_abs_joint_velocity":  _finite_mean(max_joint_vels),
-        "control/mean_abs_joint_velocity": _finite_mean(mean_joint_vels),
-        "control/mean_action_norm":        _finite_mean(action_norms),
-    }
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -581,7 +492,10 @@ def main(config_path="configs/physics_baseline.yaml", no_wandb=False, seed_overr
 
     n_episodes = cfg["algo"]["n_eval_episodes"]
     print(f"\nEvaluating physics baseline over {n_episodes} episodes...")
-    metrics = evaluate(baseline, cfg["env"], n_episodes=n_episodes, seed=cfg["seed"])
+    eval_cfg = {**cfg["env"], "render": False}
+    eval_env = ArmThrowEnv(eval_cfg)
+    metrics = evaluate_episodes(baseline, eval_env, n_episodes=n_episodes, seed=cfg["seed"], verbose=True)
+    eval_env.close()
 
     print("\nResults:")
     for k, v in metrics.items():

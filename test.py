@@ -29,7 +29,9 @@ import pybullet as p
 import yaml
 from stable_baselines3 import A2C, DDPG, PPO, SAC, TD3
 
+from callbacks import WANDB_AVAILABLE, wandb
 from env import ArmThrowEnv
+from metrics import build_test_wandb_payload
 from physics_baseline import PhysicsBaseline
 
 
@@ -576,6 +578,18 @@ def main():
         "--seed", type=int, default=42,
         help="Base random seed (default: 42)"
     )
+    parser.add_argument(
+        "--wandb-project", type=str, default=None,
+        help="W&B project name. When set, logs test results to wandb."
+    )
+    parser.add_argument(
+        "--wandb-entity", type=str, default=None,
+        help="W&B entity (team or username). Optional."
+    )
+    parser.add_argument(
+        "--wandb-run-name", type=str, default=None,
+        help="W&B run name. Defaults to 'test-<model_basename>'."
+    )
     args = parser.parse_args()
 
     print(f"\n{'='*60}")
@@ -612,6 +626,25 @@ def main():
 
     # Suite 4
     print_summary(core, sanity, difficulty, monotonic_ok, algo_name)
+
+    # Optional wandb logging
+    if args.wandb_project:
+        if not WANDB_AVAILABLE:
+            print("WARNING: --wandb-project set but wandb is not installed. Skipping.", file=sys.stderr)
+        else:
+            run_name = args.wandb_run_name or f"test-{Path(args.model).stem}"
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=run_name,
+                config={"model": args.model, "algo": algo_name,
+                        "n_episodes": args.n_episodes, "seed": args.seed},
+            )
+            payload = build_test_wandb_payload(core, sanity, difficulty)
+            payload["test/monotonicity_ok"] = float(monotonic_ok)
+            wandb.log(payload)
+            wandb.finish()
+            print(f"  Logged test results to wandb run '{run_name}' in project '{args.wandb_project}'")
 
 
 if __name__ == "__main__":
