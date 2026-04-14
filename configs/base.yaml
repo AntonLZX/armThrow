@@ -23,7 +23,7 @@ env:
 
 algo:
   name: "PPO"
-  total_timesteps: 10000000
+  total_timesteps: 400000
   learning_rate: 0.0003
   n_steps: 2048
   batch_size: 64
@@ -36,7 +36,7 @@ algo:
 logging:
   name: "auto"
   save_dir: "runs"
-  gif_every_n_episodes: 100
+  gif_every_n_episodes: 10000000
   use_wandb: true
   project: "arm-throw"
   entity: "nus-me5406"
