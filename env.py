@@ -84,7 +84,7 @@ class ArmThrowEnv(gym.Env):
         if target_cfg["mode"] == "fixed":
             return np.array(target_cfg["fixed"], dtype=np.float32)
 
-               random_cfg = target_cfg["random"]
+        random_cfg = target_cfg["random"]
         sampling_mode = random_cfg.get("sampling_mode", "uniform_xyz")
         
         if sampling_mode == "sphere_with_cylinder_exclusion":

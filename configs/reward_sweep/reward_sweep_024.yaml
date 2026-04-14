@@ -8,7 +8,7 @@ algo:
   n_epochs: 10
   n_steps: 2048
   name: PPO
-  total_timesteps: 10000000
+  total_timesteps: 400000
 env:
   accel_scale: 50.0
   arm_urdf: arm.urdf
@@ -42,7 +42,7 @@ env:
   progress_shaping_scale: 1.0
 logging:
   entity: nus-me5406
-  gif_every_n_episodes: 100
+  gif_every_n_episodes: 10000000
   name: auto
   notes: testing wandb + tensorboard
   project: arm-throw
