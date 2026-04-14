@@ -12,3 +12,4 @@ dependencies:
       - wandb
       - PyYAML
       - imageio
+      - nomkl  # This prevents Intel MKL's libomp conflicts

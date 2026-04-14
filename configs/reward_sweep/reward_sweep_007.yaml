@@ -1,0 +1,57 @@
+algo:
+  batch_size: 64
+  clip_range: 0.2
+  ent_coef: 0.01
+  gae_lambda: 0.95
+  gamma: 0.99
+  learning_rate: 0.0003
+  n_epochs: 10
+  n_steps: 2048
+  name: PPO
+  total_timesteps: 10000000
+env:
+  accel_scale: 50.0
+  arm_urdf: arm.urdf
+  end_effector_link_index: 3
+  joint_velocity_limit: 10.0
+  max_steps: 240
+  motor_force_limit: 50.0
+  observation_mode: arm_target_release
+  release_success_bonus: 1.0
+  render: true
+  reward_mode: distance_progress
+  target:
+    fixed:
+    - 2.0
+    - 0.0
+    - 0.5
+    mode: random
+    random:
+      x:
+      - 1.8
+      - 2.2
+      y:
+      - -0.2
+      - 0.2
+      z:
+      - 0.4
+      - 0.6
+  target_radius: 0.1
+  pre_release_action_penalty: 0.0001
+  pre_release_const_penalty: 0.002
+  progress_shaping_scale: 2.0
+logging:
+  entity: nus-me5406
+  gif_every_n_episodes: 100
+  name: auto
+  notes: testing wandb + tensorboard
+  project: arm-throw
+  save_dir: runs
+  save_model: true
+  sync_tensorboard: false
+  tags:
+  - ppo
+  - pybullet
+  use_wandb: true
+run_name: reward_sweep_007_pre_releas=0.0001_pre_releas=0.002_progress_s=2
+seed: 42

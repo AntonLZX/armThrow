@@ -24,6 +24,10 @@ class ArmThrowEnv(gym.Env):
         self.target_radius = float(cfg.get("target_radius", 0.1))
         self.observation_mode = cfg.get("observation_mode", "arm_target_release")
         self.visualize_target = bool(cfg.get("visualize_target", True))
+        # Reward scaling factors for distance_progress mode
+        self.pre_release_action_penalty = float(cfg.get("pre_release_action_penalty", 0.0005))
+        self.pre_release_const_penalty = float(cfg.get("pre_release_const_penalty", 0.001))
+        self.progress_shaping_scale = float(cfg.get("progress_shaping_scale", 2.0))
         if self.reward_mode not in {"absolute_distance", "distance_progress"}:
             raise ValueError(
                 f"Unsupported reward_mode={self.reward_mode!r}; expected 'absolute_distance' or 'distance_progress'"
@@ -339,15 +343,15 @@ class ArmThrowEnv(gym.Env):
 
         if self.reward_mode == "absolute_distance":
             if not self.released:
-                pre_release_penalty -= 0.0005 * float(np.sum(np.square(action[:3])))
+                pre_release_penalty -= self.pre_release_action_penalty * float(np.sum(np.square(action[:3])))
             elif ball_pos[2] >= 0.05:
                 shaping_component += phi_t
         else:
             if not self.released:
-                pre_release_penalty -= 0.0005 * float(np.sum(np.square(action[:3])))
-                pre_release_penalty -= 0.001
+                pre_release_penalty -= self.pre_release_action_penalty * float(np.sum(np.square(action[:3])))
+                pre_release_penalty -= self.pre_release_const_penalty
             elif ball_pos[2] >= 0.05:
-                shaping_component += 2.0 * (phi_t - phi_prev)
+                shaping_component += self.progress_shaping_scale * (phi_t - phi_prev)
 
         if released_this_step:
             release_bonus_component += self.release_success_bonus
