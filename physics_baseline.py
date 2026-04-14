@@ -24,35 +24,10 @@ Phase 3 SWING:
     If the swing completes without release (no trajectory window found),
     the controller retries from Phase 1 with a slightly higher scale
     (up to max_attempts times per episode).
-
-Previous two-phase strategy (replaced):
-Phase A WINDUP  (windup_steps):
-    Joint 0 (assumed yaw) rotates to face the target's horizontal angle
-    *simultaneously* with joints 1 & 2 winding backward.
-    Problem: joint 0 rarely converges before the swing starts, causing
-    the ball velocity to point in the wrong direction → timeout_no_release.
-
-Phase 2 SWING:
-    All joints swing forward at maximum effort.
-    At every step the controller forward-simulates the projectile that would
-    result from releasing *right now* (ball position + current ball velocity +
-    gravity).  As soon as that simulated trajectory passes within
-    target_radius of the target the ball is released.
-
-The resulting model.zip is loadable via PhysicsBaseline.load() and has the
-same predict() interface as an SB3 model, so it works with capture_success.py.
-
 Usage
 -----
     # Run evaluation and log to wandb
     python physics_baseline.py --config configs/physics_baseline.yaml
-
-    # Evaluate only, no wandb
-    python physics_baseline.py --config configs/physics_baseline.yaml --no-wandb
-
-    # Use with capture_success.py (capture_success.py handles loading)
-    python capture_success.py --config configs/physics_baseline.yaml \\
-        --model runs/<run_dir>/model.zip
 
 Note: the env config MUST use observation_mode: "full_throw_state" so the
       predict() method can read ball position, ball velocity and target from
@@ -73,10 +48,6 @@ from config import _coerce_float, _coerce_int, make_run_dir, resolve_wandb_name,
 from env import ArmThrowEnv
 from metrics import evaluate_episodes
 
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
 
 def normalize_physics_config(cfg):
     if not isinstance(cfg, dict):
@@ -139,10 +110,6 @@ def load_physics_config(path):
     return normalize_physics_config(cfg)
 
 
-# ---------------------------------------------------------------------------
-# Physics controller
-# ---------------------------------------------------------------------------
-
 class PhysicsBaseline:
     """
     Scripted physics controller.  Implements the SB3 model predict() interface.
@@ -175,8 +142,6 @@ class PhysicsBaseline:
         self.swing_scale = swing_scale
         self.device = "cpu"  # SB3 interface compatibility
         self._reset_state()
-
-    # -- Episode management --
 
     def _reset_state(self):
         """Reset all per-episode mutable state."""
@@ -220,10 +185,10 @@ class PhysicsBaseline:
         ball_pos = obs[6:9]
         target   = obs[12:15]
 
-        # --- Yaw: joint 0 must face the horizontal direction of the target ---
+        # Yaw: joint 0 must face the horizontal direction of the target
         self._target_yaw = math.atan2(float(target[1]), float(target[0]))
 
-        # --- Projectile: compute minimum release speed to reach the target ---
+        # Projectile: compute minimum release speed to reach the target 
         dx = float(target[0]) - float(ball_pos[0])
         dy = float(target[1]) - float(ball_pos[1])
         dz = float(target[2]) - float(ball_pos[2])
@@ -253,7 +218,7 @@ class PhysicsBaseline:
         self._effective_scale = max(v_target / v_max, 0.2) * self.swing_scale
         self._original_scale  = self._effective_scale  # stored for retry bracketing
 
-        # --- Windup depth: enough arc to sweep through the release window ---
+        # Windup depth: enough arc to sweep through the release window
         # The release window is the range of arm angles at which _trajectory_hits
         # fires.  Farther or higher targets require higher launch angles, which
         # means more of the upward arc must be covered → deeper windup.
@@ -270,7 +235,7 @@ class PhysicsBaseline:
 
         self._params_ready = True
 
-    # -- SB3-compatible predict --
+    # predict compatible with stable baselines
 
     def predict(self, obs, deterministic=True, state=None, episode_start=None):
         """Return (action, state) matching the SB3 model.predict() signature."""
@@ -330,15 +295,14 @@ class PhysicsBaseline:
         # 3° gives ~0.1m lateral deviation — right at the 0.1m radius edge.
         yaw_aligned = abs(yaw_error) < 0.03
 
-        # ------------------------------------------------------------------
+
         # Phase yaw_align
         # PD control on joint 0 (obs[3] = actual angular velocity) to damp
-        # oscillation and converge faster than pure-P.
+        # oscillation and converge faster
         # Joints 1 & 2 are driven to zero so they start the windup from rest.
-        # ------------------------------------------------------------------
         if self._phase == "yaw_align":
             # Kp=8, Kd=2 — derivative term brakes the approach and prevents
-            # the overshoot that made pure-P waste many alignment steps.
+            # overshoot
             j0_vel = float(np.clip(
                 yaw_error * 8.0 - j0_ang_vel * 2.0,
                 -self.swing_scale, self.swing_scale,
@@ -348,14 +312,13 @@ class PhysicsBaseline:
                 self._phase_step = 0
             return np.array([j0_vel, 0.0, 0.0, -1.0], dtype=np.float32)
 
-        # ------------------------------------------------------------------
+
         # Phase windup
         # Joints 1 & 2 wind backward at effective_scale (not full swing_scale).
         # Winding up at the same scale used for the throw means no deceleration
         # phase at the start of swing — the arm transitions smoothly from
         # -s·ω_max to +s·ω_max, cutting the wasted swing steps from ~30 to ~12.
         # Exit early if the joints are already saturated at the target velocity.
-        # ------------------------------------------------------------------
         elif self._phase == "windup":
             j0_vel   = float(np.clip(
                 yaw_error * 4.0 - j0_ang_vel * 1.0,
@@ -373,7 +336,7 @@ class PhysicsBaseline:
                 self._phase_step = 0
             return np.array([j0_vel, -s, -s, -1.0], dtype=np.float32)
 
-        # ------------------------------------------------------------------
+
         # Phase swing
         # Joints 1 & 2 drive forward at effective_scale.
         # Joint 0 uses a very light PD correction (0.12×) to avoid fighting
@@ -381,7 +344,6 @@ class PhysicsBaseline:
         # Release when _trajectory_hits() confirms the current trajectory hits.
         # On failure, bracket the scale: attempt 1 tries 0.80×, attempt 2
         # tries 1.20×, covering both "too fast" and "too slow" cases.
-        # ------------------------------------------------------------------
         elif self._phase == "swing":
             j0_vel = float(np.clip(
                 yaw_error * 4.0 - j0_ang_vel * 1.0,
@@ -397,8 +359,6 @@ class PhysicsBaseline:
                     self._phase          = "yaw_align"
                     self._phase_step     = 0
                     # Bracket: retry 1 tries lower, retry 2 tries higher.
-                    # The original strategy always increased scale, making
-                    # "too fast" failures progressively worse.
                     if self._attempt == 1:
                         self._effective_scale = max(
                             self._original_scale * 0.80, 0.15
@@ -440,7 +400,6 @@ class PhysicsBaseline:
                 return True
         return False
 
-    # -- Persistence --
 
     def save(self, path):
         """Save as model.zip containing JSON metadata (no neural-network weights)."""
@@ -490,10 +449,6 @@ class PhysicsBaseline:
         except Exception:
             return False
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main(config_path="configs/physics_baseline.yaml", no_wandb=False, seed_override=None):
     cfg = load_physics_config(config_path)
