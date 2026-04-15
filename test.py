@@ -146,11 +146,11 @@ def run_episode(model, env: ArmThrowEnv, seed: int | None = None):
     Roll out one episode and return a rich dict of per-episode statistics.
     Handles both SB3 models and PhysicsBaseline (reset_episode).
     """
-    # PhysicsBaseline is stateful — must reset its internal step counter
-    if hasattr(model, "reset_episode"):
-        model.reset_episode()
-
+    # PhysicsBaseline is stateful — reset after env.reset() so env is valid
+    # when passed in, enabling direct joint-0 snapping.
     obs, _ = env.reset(seed=seed)
+    if hasattr(model, "reset_episode"):
+        model.reset_episode(env=env)
 
     ep_reward = 0.0
     ep_length = 0
@@ -387,9 +387,9 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
         "random": {"x": [2.0, 2.0], "y": [0.0, 0.0], "z": [0.5, 0.5]},
     }
     probe_env = ArmThrowEnv(probe_cfg)
-    if hasattr(model, "reset_episode"):
-        model.reset_episode()
     obs, _ = probe_env.reset(seed=seed)
+    if hasattr(model, "reset_episode"):
+        model.reset_episode(env=probe_env)
     ball_positions_x = []
     released_flag = False
     for _ in range(env_cfg["max_steps"]):
@@ -522,10 +522,6 @@ def print_summary(core, sanity, difficulty, monotonic_ok, algo_name):
         print(f"  WARNING: One or more sanity checks failed (see above).")
     print(f"{'='*60}\n")
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(

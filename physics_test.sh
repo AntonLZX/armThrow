@@ -97,8 +97,8 @@ for label, target_cfg in TIERS:
     min_dists = []
     release_counts = 0
     for i in range(N_EPISODES):
-        model.reset_episode()
         obs, _ = env.reset(seed=SEED + i)
+        model.reset_episode(env=env)
         success = False
         ep_min_dist = float("inf")
         while True:

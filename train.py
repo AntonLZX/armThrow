@@ -22,7 +22,7 @@ from env import ArmThrowEnv
 
 _ALGO_CLASSES = {"PPO": PPO, "SAC": SAC, "TD3": TD3, "A2C": A2C, "DDPG": DDPG}
 
-# Which hyperparameter keys each algorithm accepts (beyond the shared ones)
+# Which hyperparameter keys each algorithm accepts
 _ALGO_KEYS = {
     "PPO":  {"learning_rate", "n_steps", "batch_size", "n_epochs", "gamma", "gae_lambda", "clip_range", "ent_coef"},
     "A2C":  {"learning_rate", "n_steps", "gamma", "gae_lambda", "ent_coef"},

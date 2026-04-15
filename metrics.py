@@ -63,10 +63,10 @@ def evaluate_episodes(model, env, n_episodes, seed=None, verbose=False):
     max_joint_vels, mean_joint_vels, action_norms = [], [], []
 
     for i in range(n_episodes):
-        if hasattr(model, "reset_episode"):
-            model.reset_episode()
         ep_seed = (seed + i) if seed is not None else None
         obs, _ = env.reset(seed=ep_seed)
+        if hasattr(model, "reset_episode"):
+            model.reset_episode(env=env)
         done = truncated = False
         ep_len = 0
         last_info = {}

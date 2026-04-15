@@ -7,13 +7,12 @@ release the ball so that it hits the target.  No learning is involved.
 Strategy
 --------
 Phase 1 YAW_ALIGN:
-    Only joint 0 moves, driving toward arctan2(target_y, target_x).
+    Only joint 0 moves to align directly with target yaw
     Joints 1 & 2 are held stationary.
-    Completes when |yaw_error| < 0.05 rad (~3°), or after 60 steps.
 
 Phase 2 WINDUP (per-target depth):
     Joints 1 & 2 swing backward at full scale to build negative velocity.
-    Joint 0 holds the aligned yaw with a gentle P-controller.
+    Joint 0 holds the aligned yaw.
     Depth (steps) is computed per episode from the required throw arc.
 
 Phase 3 SWING:
@@ -154,11 +153,21 @@ class PhysicsBaseline:
         self._effective_scale = self.swing_scale
         self._original_scale = self.swing_scale   # stored for retry bracketing
         self._effective_windup_steps = self.windup_steps
+        self._v_min_threshold = 0.0              # minimum speed before _trajectory_hits may release
         self._params_ready = False
+        self._env = None            # set via reset_episode(env=...) to enable direct snap
 
-    def reset_episode(self):
-        """Must be called at the start of each episode."""
+    def reset_episode(self, env=None):
+        """Must be called at the start of each episode.
+
+        Pass the ArmThrowEnv instance to enable direct joint-0 snapping:
+            model.reset_episode(env=env)
+        When env is provided the yaw-align phase is skipped entirely —
+        joint 0 is teleported to the target yaw via resetJointState and
+        then held at zero velocity throughout windup and swing.
+        """
         self._reset_state()
+        self._env = env
 
     # -- Per-target throw parameter computation --
 
@@ -187,6 +196,19 @@ class PhysicsBaseline:
 
         # Yaw: joint 0 must face the horizontal direction of the target
         self._target_yaw = math.atan2(float(target[1]), float(target[0]))
+
+        # If the caller supplied the env, snap joint 0 directly to the target
+        # yaw in one step and skip the velocity-ramp yaw-align phase entirely.
+        if self._env is not None:
+            import pybullet as p
+            p.resetJointState(
+                self._env.robot_id, 0,
+                targetValue=self._target_yaw,
+                targetVelocity=0.0,
+                physicsClientId=self._env.client,
+            )
+            self._phase = "windup"
+            self._phase_step = 0
 
         # Projectile: compute minimum release speed to reach the target 
         dx = float(target[0]) - float(ball_pos[0])
@@ -217,6 +239,14 @@ class PhysicsBaseline:
         # making the trajectory-check window extremely narrow).
         self._effective_scale = max(v_target / v_max, 0.2) * self.swing_scale
         self._original_scale  = self._effective_scale  # stored for retry bracketing
+
+        # Release gate: don't allow _trajectory_hits to trigger until the ball
+        # is moving at least 20% above v_min.  At exactly v_min there is only
+        # one valid launch angle (45°), so the success window has zero width —
+        # any 1-step lag or velocity-direction error causes a miss.  The 1.2×
+        # factor opens the window to a usable angular range while staying well
+        # below v_target (1.5×), so the gate never blocks the intended release.
+        self._v_min_threshold = v_min * 1.2
 
         # Windup depth: enough arc to sweep through the release window
         # The release window is the range of arm angles at which _trajectory_hits
@@ -320,7 +350,9 @@ class PhysicsBaseline:
         # -s·ω_max to +s·ω_max, cutting the wasted swing steps from ~30 to ~12.
         # Exit early if the joints are already saturated at the target velocity.
         elif self._phase == "windup":
-            j0_vel   = float(np.clip(
+            # When joint 0 was snapped directly, hold it at zero velocity.
+            # Otherwise use a soft P-controller to maintain yaw alignment.
+            j0_vel = 0.0 if self._env is not None else float(np.clip(
                 yaw_error * 4.0 - j0_ang_vel * 1.0,
                 -self.swing_scale, self.swing_scale,
             ))
@@ -345,12 +377,16 @@ class PhysicsBaseline:
         # On failure, bracket the scale: attempt 1 tries 0.80×, attempt 2
         # tries 1.20×, covering both "too fast" and "too slow" cases.
         elif self._phase == "swing":
-            j0_vel = float(np.clip(
+            # When joint 0 was snapped directly, hold at zero velocity.
+            # Otherwise use a light correction to counteract slow drift.
+            j0_vel = 0.0 if self._env is not None else float(np.clip(
                 yaw_error * 4.0 - j0_ang_vel * 1.0,
                 -self.swing_scale, self.swing_scale,
             )) * 0.12
 
-            if self._trajectory_hits(ball_pos, ball_vel, target, radius):
+            ball_speed = float(np.linalg.norm(ball_vel))
+            if ball_speed >= self._v_min_threshold and \
+                    self._trajectory_hits(ball_pos, ball_vel, target, radius):
                 return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
             if self._phase_step >= self._MAX_SWING_STEPS:
