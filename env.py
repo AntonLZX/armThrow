@@ -28,6 +28,14 @@ class ArmThrowEnv(gym.Env):
         self.pre_release_action_penalty = float(cfg.get("pre_release_action_penalty", 0.0005))
         self.pre_release_const_penalty = float(cfg.get("pre_release_const_penalty", 0.001))
         self.progress_shaping_scale = float(cfg.get("progress_shaping_scale", 2.0))
+        self.progress_shaping_function = cfg.get("progress_shaping_function", "exponential")
+        self.progress_shaping_param = float(cfg.get("progress_shaping_param", 1.5))
+        
+        if self.progress_shaping_function not in {"exponential", "tanh", "polynomial_3", "polynomial_5", "inverse_square"}:
+            raise ValueError(
+                f"Unsupported progress_shaping_function={self.progress_shaping_function!r}; "
+                "expected one of: 'exponential', 'tanh', 'polynomial_3', 'polynomial_5', 'inverse_square'"
+            )
         if self.reward_mode not in {"absolute_distance", "distance_progress"}:
             raise ValueError(
                 f"Unsupported reward_mode={self.reward_mode!r}; expected 'absolute_distance' or 'distance_progress'"
@@ -78,6 +86,31 @@ class ArmThrowEnv(gym.Env):
         self.target_success_halo_id = None
         self.target_debug_item_ids = []
         self.target_success_text_id = None
+
+    def _compute_shaping_potential(self, distance: float) -> float:
+        """
+        Compute the shaping potential based on distance and selected function.
+        
+        Different function options:
+        - exponential: exp(-param * distance)
+        - tanh: tanh(param / distance) [inverse distance tanh]
+        - polynomial_3: 1 / (1 + distance^3)
+        - polynomial_5: 1 / (1 + distance^5)
+        - inverse_square: 1 / (1 + distance^2)
+        """
+        if self.progress_shaping_function == "exponential":
+            return float(np.exp(-self.progress_shaping_param * distance))
+        elif self.progress_shaping_function == "tanh":
+            # Use param as scaling factor for the input
+            return float(np.tanh(self.progress_shaping_param / (distance + 1e-6)))
+        elif self.progress_shaping_function == "polynomial_3":
+            return float(1.0 / (1.0 + self.progress_shaping_param * (distance ** 3)))
+        elif self.progress_shaping_function == "polynomial_5":
+            return float(1.0 / (1.0 + self.progress_shaping_param * (distance ** 5)))
+        elif self.progress_shaping_function == "inverse_square":
+            return float(1.0 / (1.0 + self.progress_shaping_param * (distance ** 2)))
+        else:
+            return float(np.exp(-self.progress_shaping_param * distance))
 
     def _sample_target(self):
         target_cfg = self.cfg["target"]
@@ -380,8 +413,8 @@ class ArmThrowEnv(gym.Env):
             if self.prev_dist_to_target is not None
             else float(dist_to_target)
         )
-        phi_t = float(np.exp(-1.5 * dist_to_target))
-        phi_prev = float(np.exp(-1.5 * prev_dist_to_target))
+        phi_t = self._compute_shaping_potential(dist_to_target)
+        phi_prev = self._compute_shaping_potential(prev_dist_to_target)
 
         reward = 0.0
 

@@ -1,14 +1,20 @@
 """
-Batch training script to experiment with different reward scaling factor combinations.
+Batch training script to experiment with different reward configuration combinations.
 
 Runs multiple training trials with different combinations of:
 - pre_release_action_penalty: penalty multiplier for joint action during pre-release
 - pre_release_const_penalty: constant penalty during pre-release phase
-- progress_shaping_scale: scaling factor for distance progress reward
+- progress_shaping_function: type of shaping function used for reward (exponential, tanh, polynomial, etc)
+
+Modes:
+- penalties: Fix exponential function, vary pre_release penalties (3x3 = 9 trials)
+- functions: Fix penalties, vary shaping functions (5 trials)
+- custom: Use custom --combinations parameter
 
 Usage:
-    python batch_train_rewards.py                    # Run with default parameter combinations
-    python batch_train_rewards.py --base-config configs/base.yaml
+    python batch_train_rewards.py --mode penalties --no-render
+    python batch_train_rewards.py --mode functions --no-render
+    python batch_train_rewards.py --mode custom --combinations '{...}'
     python batch_train_rewards.py --trials 5         # Run first 5 combinations
     python batch_train_rewards.py --dry-run           # Print combinations without training
     python batch_train_rewards.py --compare-only      # Show summary of existing runs
@@ -32,7 +38,21 @@ import numpy as np
 DEFAULT_COMBINATIONS = {
     "pre_release_action_penalty": [0.0001, 0.0005, 0.001],
     "pre_release_const_penalty": [0.0005, 0.001, 0.002],
-    "progress_shaping_scale": [1.0, 2.0, 3.0],
+    "progress_shaping_function": ["exponential"],
+}
+
+# Preset combinations for specific experiments
+PRESET_COMBINATIONS = {
+    "penalties": {
+        "pre_release_action_penalty": [0.0001, 0.0005, 0.001],
+        "pre_release_const_penalty": [0.0005, 0.001, 0.002],
+        "progress_shaping_function": ["exponential"],  # Fixed exponential
+    },
+    "functions": {
+        "pre_release_action_penalty": [0.0001],  # Fixed
+        "pre_release_const_penalty": [0.001],    # Fixed
+        "progress_shaping_function": ["exponential", "tanh", "polynomial_3", "polynomial_5", "inverse_square"],
+    },
 }
 
 
@@ -70,8 +90,15 @@ def create_batch_configs(
             cfg["env"][param_name] = param_value
         
         # Create descriptive run name
+        def format_param_value(val):
+            """Format parameter value for run name (handle strings and numbers)."""
+            if isinstance(val, str):
+                return val
+            else:
+                return f"{val:.4g}"
+        
         param_str = "_".join(
-            f"{name[:10]}={val:.4g}" 
+            f"{name[:10]}={format_param_value(val)}" 
             for name, val in zip(param_names, param_combo)
         )
         cfg["run_name"] = f"reward_sweep_{idx:03d}_{param_str}"
@@ -173,13 +200,24 @@ def format_combination(params: dict) -> str:
     """Format parameter combination as string."""
     lines = []
     for name, value in params.items():
-        lines.append(f"  {name:.<40} {value:.6g}")
+        if isinstance(value, str):
+            lines.append(f"  {name:.<40} {value}")
+        else:
+            lines.append(f"  {name:.<40} {value:.6g}")
     return "\n".join(lines)
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Batch train with different reward scaling factor combinations",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["penalties", "functions", "custom"],
+        default="custom",
+        help="Experiment mode: 'penalties' (fix exponential, vary penalties), "
+             "'functions' (fix penalties, vary functions), 'custom' (use --combinations)",
     )
     parser.add_argument(
         "--base-config",
@@ -191,7 +229,7 @@ def main():
         "--combinations",
         type=lambda x: json.loads(x),
         default=None,
-        help="JSON string with parameter combinations. "
+        help="JSON string with parameter combinations (only used with --mode custom). "
              "Default: {\"pre_release_action_penalty\": [0.0001, 0.0005, 0.001], ...}",
     )
     parser.add_argument(
@@ -234,8 +272,16 @@ def main():
     base_cfg = load_base_config(args.base_config)
     print(f"Loaded base config from: {args.base_config}")
     
-    # Use provided combinations or defaults
-    combinations = args.combinations or DEFAULT_COMBINATIONS
+    # Select combinations based on mode
+    if args.mode == "penalties":
+        combinations = PRESET_COMBINATIONS["penalties"]
+        print(f"Mode: PENALTIES - Testing different penalties with fixed exponential function")
+    elif args.mode == "functions":
+        combinations = PRESET_COMBINATIONS["functions"]
+        print(f"Mode: FUNCTIONS - Testing different shaping functions with fixed penalties")
+    else:  # custom
+        combinations = args.combinations or DEFAULT_COMBINATIONS
+        print(f"Mode: CUSTOM - Using specified combinations")
     
     # Make sure reward_mode is set to distance_progress
     base_cfg["env"]["reward_mode"] = "distance_progress"
@@ -337,18 +383,45 @@ def main():
         print(f"{'='*70}")
         print(f"\nResults saved to: {summary_path}")
         
-        # Print summary table
+        # Print summary table (adaptive to parameters used)
         print(f"\n{'Summary of all trials:':^70}")
         print(f"{'-'*70}")
-        print(f"Trial | pre_release_action | pre_release_const | shaping_scale")
-        print(f"      | penalty            | penalty           | ")
+        
+        # Determine which shaping parameter is present
+        has_function = any("progress_shaping_function" in r for r in results)
+        has_scale = any("progress_shaping_scale" in r for r in results)
+        
+        if has_function:
+            print(f"Trial | pre_release_action | pre_release_const | shaping_function")
+            print(f"      | penalty            | penalty           | ")
+        else:
+            print(f"Trial | pre_release_action | pre_release_const | shaping_scale")
+            print(f"      | penalty            | penalty           | ")
         print(f"{'-'*70}")
+        
         for record in results:
             trial_id = record.get("trial_index", "?")
             action_pen = record.get("pre_release_action_penalty", "?")
             const_pen = record.get("pre_release_const_penalty", "?")
-            shaping = record.get("progress_shaping_scale", "?")
-            print(f"{trial_id:3d}  | {action_pen:17.5g} | {const_pen:16.5g} | {shaping:13.5g}")
+            
+            # Format numeric values
+            try:
+                action_pen_fmt = f"{float(action_pen):17.5g}" if action_pen != "?" else "?".rjust(17)
+                const_pen_fmt = f"{float(const_pen):16.5g}" if const_pen != "?" else "?".rjust(16)
+            except (ValueError, TypeError):
+                action_pen_fmt = str(action_pen).rjust(17)
+                const_pen_fmt = str(const_pen).rjust(16)
+            
+            if has_function:
+                shaping = record.get("progress_shaping_function", "?")
+                print(f"{trial_id:3d}  | {action_pen_fmt} | {const_pen_fmt} | {str(shaping):15s}")
+            else:
+                shaping = record.get("progress_shaping_scale", "?")
+                try:
+                    shaping_fmt = f"{float(shaping):13.5g}" if shaping != "?" else "?".rjust(13)
+                except (ValueError, TypeError):
+                    shaping_fmt = str(shaping).rjust(13)
+                print(f"{trial_id:3d}  | {action_pen_fmt} | {const_pen_fmt} | {shaping_fmt}")
         print(f"{'-'*70}")
     else:
         print(f"\nNo results collected.")

@@ -18,7 +18,7 @@ env:
   motor_force_limit: 50.0
   observation_mode: arm_target_release
   release_success_bonus: 1.0
-  render: true
+  render: false
   reward_mode: distance_progress
   target:
     fixed:
