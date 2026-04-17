@@ -36,7 +36,7 @@ def _finite_std(vals):
 # Canonical evaluation loop
 # ---------------------------------------------------------------------------
 
-def evaluate_episodes(model, env, n_episodes, seed=None, verbose=False):
+def evaluate_episodes(model, env, n_episodes, seed=None, verbose=False, deterministic=True):
     """
     Roll out n_episodes with model on env and return a dict of canonical metrics.
 
@@ -44,11 +44,13 @@ def evaluate_episodes(model, env, n_episodes, seed=None, verbose=False):
     automatically when the model exposes that method.
 
     Args:
-        model:       SB3-compatible model with predict(obs, deterministic=True).
+        model:       SB3-compatible model with predict(obs, deterministic=...).
         env:         ArmThrowEnv instance (already created; not closed here).
         n_episodes:  Number of episodes to evaluate.
         seed:        Optional base seed; episode i uses seed + i.
         verbose:     Print a running success-rate line every 10 % of episodes.
+        deterministic:
+                     Whether to use deterministic actions when calling model.predict().
 
     Returns:
         Dict with the keys listed in EVAL_METRIC_KEYS below.
@@ -72,7 +74,7 @@ def evaluate_episodes(model, env, n_episodes, seed=None, verbose=False):
         last_info = {}
 
         while not (done or truncated):
-            action, _ = model.predict(obs, deterministic=True)
+            action, _ = model.predict(obs, deterministic=deterministic)
             obs, _, done, truncated, last_info = env.step(action)
             ep_len += 1
 

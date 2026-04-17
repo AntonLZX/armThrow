@@ -1,0 +1,69 @@
+seed: 42
+run_name: "ppo_arm_throw_curriculum_auto_smoke"
+
+logging:
+  save_dir: "runs"
+  use_wandb: true
+  project: "arm-throw"
+  entity: "nus-me5406"
+  tags: ["curriculum-auto", "smoke"]
+  notes: "Smoke validation for automatic curriculum stage switching"
+
+curriculum:
+  eval_freq: 512
+  n_eval_episodes: 4
+  deterministic_eval: true
+  stages:
+    - name: "stage1"
+      config: "fixed_center_stage1_smoke.yaml"
+      min_timesteps: 1024
+      max_timesteps: 1536
+      decision:
+        action: "switch"
+        logic: "all"
+        conditions:
+          - type: "threshold"
+            metric: "valid/release_rate"
+            op: ">="
+            value: 0.0
+          - type: "plateau"
+            metric: "valid/mean_final_distance"
+            mode: "min"
+            window: 2
+            min_delta: 999.0
+    - name: "stage2"
+      config: "narrow_random_stage2_smoke.yaml"
+      min_timesteps: 1024
+      max_timesteps: 1536
+      decision:
+        action: "switch"
+        logic: "all"
+        conditions:
+          - type: "threshold"
+            metric: "valid/success_rate"
+            op: ">="
+            value: 0.0
+          - type: "plateau"
+            metric: "valid/mean_final_distance"
+            mode: "min"
+            window: 2
+            min_delta: 999.0
+    - name: "stage3"
+      config: "random_full_stage3_smoke.yaml"
+      min_timesteps: 1024
+      max_timesteps: 1536
+      decision:
+        action: "stop"
+        logic: "all"
+        conditions:
+          - type: "plateau"
+            metric: "valid/success_rate"
+            mode: "max"
+            window: 2
+            min_delta: 999.0
+          - type: "plateau"
+            metric: "valid/mean_final_distance"
+            mode: "min"
+            window: 2
+            min_delta: 999.0
+

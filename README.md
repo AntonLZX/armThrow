@@ -96,6 +96,34 @@ python train.py --config <config.yaml> --seed 123
 
 The resolved config actually used for a run is saved to `runs/<run>/config.yaml`.
 
+### 3. Automatic curriculum entry
+
+The manual 3-stage chain is still available, but the repo now also provides a
+dedicated automatic stage-switch runner:
+
+```bash
+python train_curriculum.py --config configs/curriculum_auto_default.yaml
+```
+
+This entry point will:
+
+- run `stage1 -> stage2 -> stage3` sequentially
+- evaluate `valid/*` metrics after each configured chunk
+- switch or stop stages based on threshold / plateau rules defined in the curriculum YAML
+- save per-stage artifacts such as `config.yaml`, `eval_metrics.jsonl`, and `stage_summary.json`
+- save run-level artifacts such as `curriculum_config.yaml`, `curriculum_events.jsonl`, and `curriculum_summary.json`
+
+If you only want a minimal code-path validation, use the smoke config:
+
+```bash
+python train_curriculum.py --config configs/curriculum_auto_smoke.yaml
+```
+
+The original manual chain remains unchanged:
+
+- `python train.py --config ...`
+- `python train.py --config ... --load-model ...`
+
 ## Evaluation
 
 Two scripts are provided for evaluating a trained model after training is complete.
