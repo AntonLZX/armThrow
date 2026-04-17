@@ -7,13 +7,12 @@ release the ball so that it hits the target.  No learning is involved.
 Strategy
 --------
 Phase 1 YAW_ALIGN:
-    Only joint 0 moves, driving toward arctan2(target_y, target_x).
+    Only joint 0 moves to align directly with target yaw
     Joints 1 & 2 are held stationary.
-    Completes when |yaw_error| < 0.05 rad (~3°), or after 60 steps.
 
 Phase 2 WINDUP (per-target depth):
     Joints 1 & 2 swing backward at full scale to build negative velocity.
-    Joint 0 holds the aligned yaw with a gentle P-controller.
+    Joint 0 holds the aligned yaw.
     Depth (steps) is computed per episode from the required throw arc.
 
 Phase 3 SWING:
@@ -24,35 +23,10 @@ Phase 3 SWING:
     If the swing completes without release (no trajectory window found),
     the controller retries from Phase 1 with a slightly higher scale
     (up to max_attempts times per episode).
-
-Previous two-phase strategy (replaced):
-Phase A WINDUP  (windup_steps):
-    Joint 0 (assumed yaw) rotates to face the target's horizontal angle
-    *simultaneously* with joints 1 & 2 winding backward.
-    Problem: joint 0 rarely converges before the swing starts, causing
-    the ball velocity to point in the wrong direction → timeout_no_release.
-
-Phase 2 SWING:
-    All joints swing forward at maximum effort.
-    At every step the controller forward-simulates the projectile that would
-    result from releasing *right now* (ball position + current ball velocity +
-    gravity).  As soon as that simulated trajectory passes within
-    target_radius of the target the ball is released.
-
-The resulting model.zip is loadable via PhysicsBaseline.load() and has the
-same predict() interface as an SB3 model, so it works with capture_success.py.
-
 Usage
 -----
     # Run evaluation and log to wandb
     python physics_baseline.py --config configs/physics_baseline.yaml
-
-    # Evaluate only, no wandb
-    python physics_baseline.py --config configs/physics_baseline.yaml --no-wandb
-
-    # Use with capture_success.py (capture_success.py handles loading)
-    python capture_success.py --config configs/physics_baseline.yaml \\
-        --model runs/<run_dir>/model.zip
 
 Note: the env config MUST use observation_mode: "full_throw_state" so the
       predict() method can read ball position, ball velocity and target from
@@ -71,11 +45,8 @@ import yaml
 from callbacks import WANDB_AVAILABLE, wandb
 from config import _coerce_float, _coerce_int, make_run_dir, resolve_wandb_name, set_seed
 from env import ArmThrowEnv
+from metrics import evaluate_episodes
 
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
 
 def normalize_physics_config(cfg):
     if not isinstance(cfg, dict):
@@ -138,10 +109,6 @@ def load_physics_config(path):
     return normalize_physics_config(cfg)
 
 
-# ---------------------------------------------------------------------------
-# Physics controller
-# ---------------------------------------------------------------------------
-
 class PhysicsBaseline:
     """
     Scripted physics controller.  Implements the SB3 model predict() interface.
@@ -163,7 +130,8 @@ class PhysicsBaseline:
     _V_MAX_AT_UNIT_SCALE = 12.3  # m/s
 
     # Maximum steps per phase before the controller forces a transition
-    _MAX_YAW_STEPS    = 60   # 1.0 s  — time to converge joint 0 to target yaw
+    _MAX_YAW_STEPS    = 40   # 0.67 s — PD control converges faster than pure-P;
+                             #          saved 20 steps are available for retries
     _MAX_WINDUP_STEPS = 80   # 1.3 s  — upper bound; per-target value is shorter
     _MAX_SWING_STEPS  = 80   # 1.3 s  — if no release by here, retry
 
@@ -174,8 +142,6 @@ class PhysicsBaseline:
         self.device = "cpu"  # SB3 interface compatibility
         self._reset_state()
 
-    # -- Episode management --
-
     def _reset_state(self):
         """Reset all per-episode mutable state."""
         self._phase = "yaw_align"   # yaw_align → windup → swing → (retry)
@@ -185,12 +151,23 @@ class PhysicsBaseline:
         # Per-episode computed parameters (set in _compute_throw_params)
         self._target_yaw = 0.0
         self._effective_scale = self.swing_scale
+        self._original_scale = self.swing_scale   # stored for retry bracketing
         self._effective_windup_steps = self.windup_steps
+        self._v_min_threshold = 0.0              # minimum speed before _trajectory_hits may release
         self._params_ready = False
+        self._env = None            # set via reset_episode(env=...) to enable direct snap
 
-    def reset_episode(self):
-        """Must be called at the start of each episode."""
+    def reset_episode(self, env=None):
+        """Must be called at the start of each episode.
+
+        Pass the ArmThrowEnv instance to enable direct joint-0 snapping:
+            model.reset_episode(env=env)
+        When env is provided the yaw-align phase is skipped entirely —
+        joint 0 is teleported to the target yaw via resetJointState and
+        then held at zero velocity throughout windup and swing.
+        """
         self._reset_state()
+        self._env = env
 
     # -- Per-target throw parameter computation --
 
@@ -202,7 +179,7 @@ class PhysicsBaseline:
           _target_yaw              — direction joint 0 must face
           _effective_scale         — fraction of swing_scale to use (tuned to
                                      the minimum speed that reaches the target,
-                                     with a 30% margin)
+                                     with a 50% margin)
           _effective_windup_steps  — how many steps to spend in windup phase,
                                      scaled to the required throw arc
 
@@ -217,10 +194,23 @@ class PhysicsBaseline:
         ball_pos = obs[6:9]
         target   = obs[12:15]
 
-        # --- Yaw: joint 0 must face the horizontal direction of the target ---
+        # Yaw: joint 0 must face the horizontal direction of the target
         self._target_yaw = math.atan2(float(target[1]), float(target[0]))
 
-        # --- Projectile: compute minimum release speed to reach the target ---
+        # If the caller supplied the env, snap joint 0 directly to the target
+        # yaw in one step and skip the velocity-ramp yaw-align phase entirely.
+        if self._env is not None:
+            import pybullet as p
+            p.resetJointState(
+                self._env.robot_id, 0,
+                targetValue=self._target_yaw,
+                targetVelocity=0.0,
+                physicsClientId=self._env.client,
+            )
+            self._phase = "windup"
+            self._phase_step = 0
+
+        # Projectile: compute minimum release speed to reach the target 
         dx = float(target[0]) - float(ball_pos[0])
         dy = float(target[1]) - float(ball_pos[1])
         dz = float(target[2]) - float(ball_pos[2])
@@ -240,13 +230,25 @@ class PhysicsBaseline:
         else:
             v_min = self._V_MAX_AT_UNIT_SCALE * self.swing_scale  # fallback: use max
 
-        # Target speed: 30% above minimum so the discriminant is comfortably positive
+        # Target speed: 50% above minimum so the discriminant is comfortably positive
+        # and the release window is wide enough to be caught reliably.
         v_max    = self._V_MAX_AT_UNIT_SCALE * self.swing_scale
-        v_target = min(v_min * 1.3, v_max)
-        # Floor at 40% of max so the arm always has enough momentum to swing cleanly
-        self._effective_scale = max(v_target / v_max, 0.4) * self.swing_scale
+        v_target = min(v_min * 1.5, v_max)
+        # Floor at 20% so close targets get a proportionate low-speed swing
+        # (40% was too high: it forced ~5 m/s for targets needing only 3 m/s,
+        # making the trajectory-check window extremely narrow).
+        self._effective_scale = max(v_target / v_max, 0.2) * self.swing_scale
+        self._original_scale  = self._effective_scale  # stored for retry bracketing
 
-        # --- Windup depth: enough arc to sweep through the release window ---
+        # Release gate: don't allow _trajectory_hits to trigger until the ball
+        # is moving at least 20% above v_min.  At exactly v_min there is only
+        # one valid launch angle (45°), so the success window has zero width —
+        # any 1-step lag or velocity-direction error causes a miss.  The 1.2×
+        # factor opens the window to a usable angular range while staying well
+        # below v_target (1.5×), so the gate never blocks the intended release.
+        self._v_min_threshold = v_min * 1.2
+
+        # Windup depth: enough arc to sweep through the release window
         # The release window is the range of arm angles at which _trajectory_hits
         # fires.  Farther or higher targets require higher launch angles, which
         # means more of the upward arc must be covered → deeper windup.
@@ -263,7 +265,7 @@ class PhysicsBaseline:
 
         self._params_ready = True
 
-    # -- SB3-compatible predict --
+    # predict compatible with stable baselines
 
     def predict(self, obs, deterministic=True, state=None, episode_start=None):
         """Return (action, state) matching the SB3 model.predict() signature."""
@@ -306,58 +308,85 @@ class PhysicsBaseline:
             self._compute_throw_params(obs)
 
         joint_ang = obs[0:3]
+        j0_ang_vel = float(obs[3])   # actual joint 0 angular velocity (for PD yaw)
         ball_pos  = obs[6:9]
         ball_vel  = obs[9:12]
         target    = obs[12:15]
         radius    = float(self.env_cfg.get("target_radius", 0.1))
+        joint_vel_limit = float(self.env_cfg.get("joint_velocity_limit", 10.0))
 
         self._phase_step += 1
         s = self._effective_scale
 
-        # Shared yaw correction term (used with different gains per phase)
-        yaw_error   = self._target_yaw - float(joint_ang[0])
-        yaw_error   = (yaw_error + math.pi) % (2.0 * math.pi) - math.pi  # wrap to [-π, π]
-        yaw_aligned = abs(yaw_error) < 0.05   # ~3° tolerance
+        # Shared yaw error (wrapped to [-π, π])
+        yaw_error = self._target_yaw - float(joint_ang[0])
+        yaw_error = (yaw_error + math.pi) % (2.0 * math.pi) - math.pi
+        # Tighter tolerance: 0.03 rad (~1.7°).  At 5 m/s to a 2m target,
+        # 3° gives ~0.1m lateral deviation — right at the 0.1m radius edge.
+        yaw_aligned = abs(yaw_error) < 0.03
 
-        # ------------------------------------------------------------------
+
         # Phase yaw_align
-        # Only joint 0 moves.  Joints 1 & 2 are held at zero velocity so
-        # they do not interfere with the alignment dynamics.
-        # Transitions when yaw error is within tolerance or step cap is hit.
-        # ------------------------------------------------------------------
+        # PD control on joint 0 (obs[3] = actual angular velocity) to damp
+        # oscillation and converge faster
+        # Joints 1 & 2 are driven to zero so they start the windup from rest.
         if self._phase == "yaw_align":
-            j0_vel = float(np.clip(yaw_error * 8.0, -self.swing_scale, self.swing_scale))
+            # Kp=8, Kd=2 — derivative term brakes the approach and prevents
+            # overshoot
+            j0_vel = float(np.clip(
+                yaw_error * 8.0 - j0_ang_vel * 2.0,
+                -self.swing_scale, self.swing_scale,
+            ))
             if yaw_aligned or self._phase_step >= self._MAX_YAW_STEPS:
                 self._phase      = "windup"
                 self._phase_step = 0
             return np.array([j0_vel, 0.0, 0.0, -1.0], dtype=np.float32)
 
-        # ------------------------------------------------------------------
+
         # Phase windup
-        # Joints 1 & 2 wind backward at full swing_scale to build energy.
-        # Joint 0 holds the aligned yaw with a gentle P-gain (the arm is
-        # already aligned; this just corrects small drift).
-        # Depth is _effective_windup_steps, capped at _MAX_WINDUP_STEPS.
-        # ------------------------------------------------------------------
+        # Joints 1 & 2 wind backward at effective_scale (not full swing_scale).
+        # Winding up at the same scale used for the throw means no deceleration
+        # phase at the start of swing — the arm transitions smoothly from
+        # -s·ω_max to +s·ω_max, cutting the wasted swing steps from ~30 to ~12.
+        # Exit early if the joints are already saturated at the target velocity.
         elif self._phase == "windup":
-            j0_vel   = float(np.clip(yaw_error * 4.0, -self.swing_scale, self.swing_scale))
+            # When joint 0 was snapped directly, hold it at zero velocity.
+            # Otherwise use a soft P-controller to maintain yaw alignment.
+            j0_vel = 0.0 if self._env is not None else float(np.clip(
+                yaw_error * 4.0 - j0_ang_vel * 1.0,
+                -self.swing_scale, self.swing_scale,
+            ))
             max_wind = min(self._effective_windup_steps, self._MAX_WINDUP_STEPS)
-            if self._phase_step >= max_wind:
+            # Adaptive early exit: joints 1 & 2 have reached target winding velocity
+            joints_wound_up = (
+                float(obs[4]) <= -s * joint_vel_limit * 0.85
+                and float(obs[5]) <= -s * joint_vel_limit * 0.85
+                and self._phase_step >= 5
+            )
+            if self._phase_step >= max_wind or joints_wound_up:
                 self._phase      = "swing"
                 self._phase_step = 0
-            return np.array([j0_vel, -self.swing_scale, -self.swing_scale, -1.0], dtype=np.float32)
+            return np.array([j0_vel, -s, -s, -1.0], dtype=np.float32)
 
-        # ------------------------------------------------------------------
+
         # Phase swing
-        # Joints 1 & 2 swing forward at _effective_scale.
-        # Joint 0 holds yaw at reduced gain (0.15×) to avoid fighting the throw.
+        # Joints 1 & 2 drive forward at effective_scale.
+        # Joint 0 uses a very light PD correction (0.12×) to avoid fighting
+        # the throw while still correcting slow drift.
         # Release when _trajectory_hits() confirms the current trajectory hits.
-        # Retry from yaw_align if the swing step cap is reached without release.
-        # ------------------------------------------------------------------
+        # On failure, bracket the scale: attempt 1 tries 0.80×, attempt 2
+        # tries 1.20×, covering both "too fast" and "too slow" cases.
         elif self._phase == "swing":
-            j0_vel = float(np.clip(yaw_error * 4.0, -self.swing_scale, self.swing_scale)) * 0.15
+            # When joint 0 was snapped directly, hold at zero velocity.
+            # Otherwise use a light correction to counteract slow drift.
+            j0_vel = 0.0 if self._env is not None else float(np.clip(
+                yaw_error * 4.0 - j0_ang_vel * 1.0,
+                -self.swing_scale, self.swing_scale,
+            )) * 0.12
 
-            if self._trajectory_hits(ball_pos, ball_vel, target, radius):
+            ball_speed = float(np.linalg.norm(ball_vel))
+            if ball_speed >= self._v_min_threshold and \
+                    self._trajectory_hits(ball_pos, ball_vel, target, radius):
                 return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
             if self._phase_step >= self._MAX_SWING_STEPS:
@@ -365,11 +394,15 @@ class PhysicsBaseline:
                     self._attempt       += 1
                     self._phase          = "yaw_align"
                     self._phase_step     = 0
-                    # Slightly increase scale in case the trajectory window was
-                    # just above the speed that the previous attempt reached
-                    self._effective_scale = min(
-                        self._effective_scale * 1.15, self.swing_scale
-                    )
+                    # Bracket: retry 1 tries lower, retry 2 tries higher.
+                    if self._attempt == 1:
+                        self._effective_scale = max(
+                            self._original_scale * 0.80, 0.15
+                        )
+                    else:
+                        self._effective_scale = min(
+                            self._original_scale * 1.20, self.swing_scale
+                        )
 
             return np.array([j0_vel, s, s, -1.0], dtype=np.float32)
 
@@ -403,7 +436,6 @@ class PhysicsBaseline:
                 return True
         return False
 
-    # -- Persistence --
 
     def save(self, path):
         """Save as model.zip containing JSON metadata (no neural-network weights)."""
@@ -454,100 +486,6 @@ class PhysicsBaseline:
             return False
 
 
-# ---------------------------------------------------------------------------
-# Evaluation  (same metric keys as WandbEvalCallback / train_imitation.py)
-# ---------------------------------------------------------------------------
-
-def _finite_mean(vals):
-    finite = [float(v) for v in vals if v is not None and np.isfinite(v)]
-    return float(np.mean(finite)) if finite else float("nan")
-
-
-def _finite_std(vals):
-    finite = [float(v) for v in vals if v is not None and np.isfinite(v)]
-    return float(np.std(finite)) if finite else float("nan")
-
-
-def evaluate(baseline, env_cfg, n_episodes, seed):
-    """
-    Run n_episodes with the PhysicsBaseline and return a metrics dict whose
-    keys match WandbEvalCallback (valid/*) and train_imitation (reward/, control/).
-    """
-    eval_cfg = {**env_cfg, "render": False}
-    env = ArmThrowEnv(eval_cfg)
-    env.reset(seed=seed)
-
-    lengths, final_dists, min_dists = [], [], []
-    successes, releases, release_steps, release_speeds = [], [], [], []
-    ground_misses, timeout_no_release, timeout_after_release = [], [], []
-    pre_release_penalties, shapings, release_bonuses = [], [], []
-    success_bonuses, failure_penalties = [], []
-    max_joint_vels, mean_joint_vels, action_norms = [], [], []
-
-    for ep in range(n_episodes):
-        obs, _ = env.reset()
-        baseline.reset_episode()
-        done = truncated = False
-        ep_len = 0
-        last_info = {}
-
-        while not (done or truncated):
-            action, _ = baseline.predict(obs)
-            obs, _, done, truncated, last_info = env.step(action)
-            ep_len += 1
-
-        lengths.append(ep_len)
-        final_dists.append(last_info.get("final_distance_to_target", np.nan))
-        min_dists.append(last_info.get("min_distance_to_target", np.nan))
-        successes.append(float(last_info.get("success", 0.0)))
-        releases.append(float(last_info.get("released", 0.0)))
-        release_steps.append(last_info.get("release_step", np.nan))
-        release_speeds.append(last_info.get("release_ball_speed", np.nan))
-        ground_misses.append(float(last_info.get("termination_ground_miss", 0.0)))
-        timeout_no_release.append(float(last_info.get("termination_timeout_no_release", 0.0)))
-        timeout_after_release.append(float(last_info.get("termination_timeout_after_release", 0.0)))
-        pre_release_penalties.append(last_info.get("reward_pre_release_penalty", np.nan))
-        shapings.append(last_info.get("reward_shaping_component", np.nan))
-        release_bonuses.append(last_info.get("reward_release_bonus_component", np.nan))
-        success_bonuses.append(last_info.get("reward_success_bonus_component", np.nan))
-        failure_penalties.append(last_info.get("reward_failure_penalty_component", np.nan))
-        max_joint_vels.append(last_info.get("max_abs_joint_velocity", np.nan))
-        mean_joint_vels.append(last_info.get("mean_abs_joint_velocity", np.nan))
-        action_norms.append(last_info.get("mean_action_norm", np.nan))
-
-        if (ep + 1) % max(1, n_episodes // 10) == 0:
-            sr = float(np.mean(successes))
-            print(f"  [{ep + 1:4d}/{n_episodes}] running success_rate={sr:.3f}")
-
-    env.close()
-
-    return {
-        "valid/mean_ep_length":          float(np.mean(lengths)),
-        "valid/success_rate":            float(np.mean(successes)),
-        "valid/release_rate":            float(np.mean(releases)),
-        "valid/mean_final_distance":     _finite_mean(final_dists),
-        "valid/std_final_distance":      _finite_std(final_dists),
-        "valid/min_distance_to_target":  _finite_mean(min_dists),
-        "valid/mean_release_step":       _finite_mean(release_steps),
-        "valid/mean_release_ball_speed": _finite_mean(release_speeds),
-        "valid/ground_miss_rate":        float(np.mean(ground_misses)),
-        "valid/timeout_no_release_rate": float(np.mean(timeout_no_release)),
-        "valid/timeout_after_release_rate": float(np.mean(timeout_after_release)),
-        "reward/pre_release_penalty":    _finite_mean(pre_release_penalties),
-        "reward/shaping":                _finite_mean(shapings),
-        "reward/release_bonus":          _finite_mean(release_bonuses),
-        "reward/success_bonus":          _finite_mean(success_bonuses),
-        "reward/failure_penalty":        _finite_mean(failure_penalties),
-        "control/max_abs_joint_velocity":  _finite_mean(max_joint_vels),
-        "control/mean_abs_joint_velocity": _finite_mean(mean_joint_vels),
-        "control/mean_action_norm":        _finite_mean(action_norms),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def main(config_path="configs/physics_baseline.yaml", no_wandb=False, seed_override=None):
     cfg = load_physics_config(config_path)
     if seed_override is not None:
@@ -581,7 +519,10 @@ def main(config_path="configs/physics_baseline.yaml", no_wandb=False, seed_overr
 
     n_episodes = cfg["algo"]["n_eval_episodes"]
     print(f"\nEvaluating physics baseline over {n_episodes} episodes...")
-    metrics = evaluate(baseline, cfg["env"], n_episodes=n_episodes, seed=cfg["seed"])
+    eval_cfg = {**cfg["env"], "render": False}
+    eval_env = ArmThrowEnv(eval_cfg)
+    metrics = evaluate_episodes(baseline, eval_env, n_episodes=n_episodes, seed=cfg["seed"], verbose=True)
+    eval_env.close()
 
     print("\nResults:")
     for k, v in metrics.items():

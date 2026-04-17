@@ -181,6 +181,31 @@ def capture_frame(env, width=640, height=480):
 # Rollout
 # ---------------------------------------------------------------------------
 
+def rollout_probe(env, model, episode_seed, deterministic):
+    """
+    Roll out one episode WITHOUT capturing frames.
+    Returns (info, step_count, total_reward).
+    Used to quickly determine if an episode is a success or failure.
+    """
+    if hasattr(model, "reset_episode"):
+        model.reset_episode()
+
+    obs, _ = env.reset(seed=episode_seed)
+    done = False
+    truncated = False
+    last_info = {}
+    step_count = 0
+    total_reward = 0.0
+
+    while not (done or truncated):
+        action, _ = model.predict(obs, deterministic=deterministic)
+        obs, reward, done, truncated, last_info = env.step(action)
+        total_reward += float(reward)
+        step_count += 1
+
+    return last_info, step_count, total_reward
+
+
 def rollout_once(env, model, episode_seed, deterministic):
     """
     Roll out one episode and return (frames, info, step_count, total_reward).
@@ -203,7 +228,6 @@ def rollout_once(env, model, episode_seed, deterministic):
     while not (done or truncated):
         action, _ = model.predict(obs, deterministic=deterministic)
         obs, reward, done, truncated, last_info = env.step(action)
-        last_info = last_info
         total_reward += float(reward)
         step_count += 1
         frames.append(capture_frame(env))
@@ -295,13 +319,16 @@ def main():
 
     env = ArmThrowEnv(env_cfg)
 
-    best_success = None   # (frames, info, step_count, total_reward, seed)
-    worst_failure = None  # (frames, info, step_count, total_reward, seed)
+    success_seed = None
+    failure_seed = None
 
     try:
+        # Phase 1: probe episodes (no frame capture) until we find one success and one failure
         for attempt in range(args.max_attempts):
+            if success_seed is not None and failure_seed is not None:
+                break
             episode_seed = args.seed + attempt
-            frames, info, step_count, total_reward = rollout_once(
+            info, step_count, total_reward = rollout_probe(
                 env=env,
                 model=model,
                 episode_seed=episode_seed,
@@ -309,35 +336,43 @@ def main():
             )
             success = float(info.get("success", 0.0)) >= 1.0
             print(
-                f"attempt={attempt + 1}  seed={episode_seed}  success={success}  "
+                f"probe attempt={attempt + 1}  seed={episode_seed}  success={success}  "
                 f"total_reward={total_reward:.3f}  "
                 f"final_distance={info.get('final_distance_to_target', float('nan')):.3f}  "
                 f"steps={step_count}"
             )
+            if success and success_seed is None:
+                success_seed = episode_seed
+            elif not success and failure_seed is None:
+                failure_seed = episode_seed
 
-            if success:
-                if best_success is None or total_reward > best_success[3]:
-                    best_success = (frames, info, step_count, total_reward, episode_seed)
-            else:
-                if worst_failure is None or total_reward < worst_failure[3]:
-                    worst_failure = (frames, info, step_count, total_reward, episode_seed)
+        # Phase 2: re-run only the chosen episodes with frame capture
+        if success_seed is not None:
+            print(f"\nCapturing success episode (seed={success_seed}) ...")
+            frames, info, step_count, total_reward = rollout_once(
+                env=env, model=model,
+                episode_seed=success_seed,
+                deterministic=not args.stochastic,
+            )
+            save_episode(frames, info, step_count, total_reward, success_seed, "success", output_dir)
+        else:
+            print("No successful rollout found within the attempt budget.")
+
+        if failure_seed is not None:
+            print(f"\nCapturing failure episode (seed={failure_seed}) ...")
+            frames, info, step_count, total_reward = rollout_once(
+                env=env, model=model,
+                episode_seed=failure_seed,
+                deterministic=not args.stochastic,
+            )
+            save_episode(frames, info, step_count, total_reward, failure_seed, "failure", output_dir)
+        else:
+            print("No failed rollout found (all episodes succeeded).")
 
     finally:
         env.close()
 
-    if best_success is not None:
-        frames, info, step_count, total_reward, seed = best_success
-        save_episode(frames, info, step_count, total_reward, seed, "success", output_dir)
-    else:
-        print("No successful rollout found within the attempt budget.")
-
-    if worst_failure is not None:
-        frames, info, step_count, total_reward, seed = worst_failure
-        save_episode(frames, info, step_count, total_reward, seed, "worst_failure", output_dir)
-    else:
-        print("No failed rollout found (all episodes succeeded).")
-
-    return 0 if best_success is not None else 1
+    return 0 if success_seed is not None else 1
 
 
 if __name__ == "__main__":

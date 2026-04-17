@@ -1,9 +1,6 @@
 """
 test.py — Validation / testing script for any ArmThrow model.
 
-Supports: PPO, A2C, SAC, TD3, DDPG (all SB3 algorithms), BC and GAIL
-(saved as PPO-compatible zips), and the scripted PhysicsBaseline.
-
 Usage:
     python test.py --model ppo_arm_throw.zip
     python test.py --model runs/<run>/model.zip --config runs/<run>/config.yaml
@@ -29,17 +26,13 @@ import pybullet as p
 import yaml
 from stable_baselines3 import A2C, DDPG, PPO, SAC, TD3
 
+from callbacks import WANDB_AVAILABLE, wandb
 from env import ArmThrowEnv
+from metrics import build_test_wandb_payload
 from physics_baseline import PhysicsBaseline
 
 
-# ---------------------------------------------------------------------------
-# Model loading
-# ---------------------------------------------------------------------------
-
 # Algo names that are saved as PPO-compatible model.zip files
-_BC_GAIL_ALIASES = {"BC", "GAIL"}
-
 _SB3_ALGO_MAP = {
     "PPO": PPO,
     "A2C": A2C,
@@ -48,8 +41,7 @@ _SB3_ALGO_MAP = {
     "DDPG": DDPG,
 }
 
-# Try order for auto-detection: PPO first (also loads A2C / BC / GAIL weights),
-# then the off-policy algorithms which have distinct policy architectures.
+# Try order for auto-detection: PPO first
 _SB3_TRY_ORDER = [PPO, SAC, TD3, A2C, DDPG]
 
 
@@ -76,14 +68,12 @@ def load_model(model_path, config_path=None):
         with open(config_path) as f:
             raw = yaml.safe_load(f)
         algo_name = str(raw.get("algo", {}).get("name", "PPO")).upper()
-        # BC and GAIL policies are serialised as PPO-compatible zips
-        load_name = "PPO" if algo_name in _BC_GAIL_ALIASES else algo_name
+        load_name = algo_name
         cls = _SB3_ALGO_MAP.get(load_name)
         if cls is None:
             print(f"  Warning: unknown algo '{algo_name}' in config — falling back to auto-detect")
         else:
-            print(f"  Detected from config: {algo_name}" +
-                  (f" (loaded as PPO)" if algo_name in _BC_GAIL_ALIASES else ""))
+            print(f"  Detected from config: {algo_name}")
             return cls.load(str(path), device="cpu"), algo_name
 
     # 3. Auto-detect by trying each SB3 class
@@ -101,10 +91,6 @@ def load_model(model_path, config_path=None):
         "Provide --config to specify the algo explicitly."
     )
 
-
-# ---------------------------------------------------------------------------
-# Config helpers
-# ---------------------------------------------------------------------------
 
 def _build_default_env_cfg(render: bool = False, obs_mode: str = "arm_target_release") -> dict:
     """Minimal env config mirroring the final-stage training defaults."""
@@ -155,20 +141,16 @@ def _prepare_env_cfg(config_path, render, algo_name):
     return cfg
 
 
-# ---------------------------------------------------------------------------
-# Episode runner
-# ---------------------------------------------------------------------------
-
 def run_episode(model, env: ArmThrowEnv, seed: int | None = None):
     """
     Roll out one episode and return a rich dict of per-episode statistics.
     Handles both SB3 models and PhysicsBaseline (reset_episode).
     """
-    # PhysicsBaseline is stateful — must reset its internal step counter
-    if hasattr(model, "reset_episode"):
-        model.reset_episode()
-
+    # PhysicsBaseline is stateful — reset after env.reset() so env is valid
+    # when passed in, enabling direct joint-0 snapping.
     obs, _ = env.reset(seed=seed)
+    if hasattr(model, "reset_episode"):
+        model.reset_episode(env=env)
 
     ep_reward = 0.0
     ep_length = 0
@@ -253,10 +235,6 @@ def run_episode(model, env: ArmThrowEnv, seed: int | None = None):
     }
 
 
-# ---------------------------------------------------------------------------
-# Test suites
-# ---------------------------------------------------------------------------
-
 def run_core_performance(model, env_cfg: dict, n_episodes: int, seed: int):
     """Suite 1: standard random-target performance over N episodes."""
     print(f"\n{'='*60}")
@@ -315,14 +293,14 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
     n = len(episodes)
     results = {}
 
-    # --- Check 1: Ball release ---
+    # Check 1: Ball release
     release_count = sum(e["released"] for e in episodes)
     release_ok = release_count > 0
     print(f"\n  [{'PASS' if release_ok else 'FAIL'}] Ball release: "
           f"{release_count}/{n} episodes released the ball")
     results["ball_releases"] = release_ok
 
-    # --- Check 2: Release timing ---
+    # Check 2: Release timing
     release_steps = [e["release_step"] for e in episodes
                      if e["released"] and e["release_step"] is not None]
     if release_steps:
@@ -336,7 +314,7 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
         print(f"  [SKIP] Release timing: no releases recorded")
         results["release_timing"] = None
 
-    # --- Check 3: Joint velocity limits ---
+    # Check 3: Joint velocity limits
     max_vels = [e["max_abs_joint_velocity"] for e in episodes
                 if not math.isnan(e["max_abs_joint_velocity"])]
     if max_vels:
@@ -349,7 +327,7 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
         print(f"  [SKIP] Joint velocity limits: no data")
         results["velocity_limit"] = None
 
-    # --- Check 4: Action bounds ---
+    # Check 4: Action bounds
     max_actions = [e["max_action_abs"] for e in episodes]
     global_max_action = max(max_actions)
     action_ok = global_max_action <= 1.0 + 1e-5
@@ -357,7 +335,7 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
           f"max |action| = {global_max_action:.6f} (should be <= 1.0)")
     results["action_bounds"] = action_ok
 
-    # --- Check 5: Joint angle sanity ---
+    # Check 5: Joint angle sanity
     # Values beyond ±4π (two full rotations) suggest unconstrained spinning
     max_angles = [e["max_joint_angle"] for e in episodes]
     global_max_angle = max(max_angles)
@@ -367,7 +345,7 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
           f"(warn if > {4*math.pi:.2f} rad / 2 full rotations)")
     results["joint_angle_range"] = angle_ok
 
-    # --- Check 6: Release ball speed ---
+    #Check 6: Release ball speed
     # A 3-DOF arm with joint_vel_limit=10 rad/s and ~1 m links gives ~10 m/s tip speed.
     # Allowing up to 30 m/s as a generous ceiling; below 0.01 m/s means the arm barely moved.
     release_speeds = [e["release_ball_speed"] for e in episodes
@@ -386,7 +364,7 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
         print(f"  [SKIP] Release ball speed: no releases recorded")
         results["release_speed"] = None
 
-    # --- Check 7: Gravity / physics ---
+    # Check 7: Gravity / physics 
     gravity_checks = [e["gravity_ok"] for e in episodes if e["gravity_ok"] is not None]
     if gravity_checks:
         gravity_pass = sum(gravity_checks)
@@ -398,7 +376,7 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
         print(f"  [SKIP] Gravity: ball never released in any episode")
         results["gravity"] = None
 
-    # --- Check 8: Ball movement probe ---
+    # Check 8: Ball movement probe
     # Run one fresh episode with a fixed center target and verify the ball
     # actually travels forward (x > 0.5 m from the arm base at origin).
     print(f"\n  [INFO] Running single-episode trajectory probe for ball movement check...")
@@ -409,9 +387,9 @@ def run_sanity_checks(episodes: list, env_cfg: dict, model, seed: int):
         "random": {"x": [2.0, 2.0], "y": [0.0, 0.0], "z": [0.5, 0.5]},
     }
     probe_env = ArmThrowEnv(probe_cfg)
-    if hasattr(model, "reset_episode"):
-        model.reset_episode()
     obs, _ = probe_env.reset(seed=seed)
+    if hasattr(model, "reset_episode"):
+        model.reset_episode(env=probe_env)
     ball_positions_x = []
     released_flag = False
     for _ in range(env_cfg["max_steps"]):
@@ -458,9 +436,9 @@ def run_progressive_difficulty(model, env_cfg: dict, n_episodes: int, seed: int)
         ("Medium  (x=[1.8,2.2], y=[-0.2,0.2], z=[0.4,0.6] — trained range)",
          {"mode": "random", "fixed": [2.0, 0.0, 0.5],
           "random": {"x": [1.8, 2.2], "y": [-0.2, 0.2], "z": [0.4, 0.6]}}),
-        ("Hard    (x=[1.5,2.5], y=[-0.5,0.5], z=[0.3,0.7] — wider range)",
-         {"mode": "random", "fixed": [2.0, 0.0, 0.5],
-          "random": {"x": [1.5, 2.5], "y": [-0.5, 0.5], "z": [0.3, 0.7]}}),
+        ("Hard    (x=[2.2,2.8], y=[-0.5,0.5], z=[0.5,0.7] — wider range)",
+         {"mode": "random", "fixed": [2.5, 0.0, 0.5],
+          "random": {"x": [2.2, 2.8], "y": [-0.5, 0.5], "z": [0.5, 0.7]}}),
         ("Extreme (x=3.0, y=0.0, z=0.5 — far fixed target)",
          {"mode": "fixed", "fixed": [3.0, 0.0, 0.5],
           "random": {"x": [3.0, 3.0], "y": [0.0, 0.0], "z": [0.5, 0.5]}}),
@@ -498,9 +476,7 @@ def run_progressive_difficulty(model, env_cfg: dict, n_episodes: int, seed: int)
     return tier_results, monotonic_ok
 
 
-# ---------------------------------------------------------------------------
 # Report
-# ---------------------------------------------------------------------------
 
 def print_summary(core, sanity, difficulty, monotonic_ok, algo_name):
     print(f"\n{'='*60}")
@@ -547,10 +523,6 @@ def print_summary(core, sanity, difficulty, monotonic_ok, algo_name):
     print(f"{'='*60}\n")
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def main():
     parser = argparse.ArgumentParser(
         description="Validate any ArmThrow model (PPO, A2C, SAC, TD3, DDPG, BC, GAIL, Physics)."
@@ -575,6 +547,18 @@ def main():
     parser.add_argument(
         "--seed", type=int, default=42,
         help="Base random seed (default: 42)"
+    )
+    parser.add_argument(
+        "--wandb-project", type=str, default=None,
+        help="W&B project name. When set, logs test results to wandb."
+    )
+    parser.add_argument(
+        "--wandb-entity", type=str, default=None,
+        help="W&B entity (team or username). Optional."
+    )
+    parser.add_argument(
+        "--wandb-run-name", type=str, default=None,
+        help="W&B run name. Defaults to 'test-<model_basename>'."
     )
     args = parser.parse_args()
 
@@ -612,6 +596,25 @@ def main():
 
     # Suite 4
     print_summary(core, sanity, difficulty, monotonic_ok, algo_name)
+
+    # Optional wandb logging
+    if args.wandb_project:
+        if not WANDB_AVAILABLE:
+            print("WARNING: --wandb-project set but wandb is not installed. Skipping.", file=sys.stderr)
+        else:
+            run_name = args.wandb_run_name or f"test-{Path(args.model).stem}"
+            wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=run_name,
+                config={"model": args.model, "algo": algo_name,
+                        "n_episodes": args.n_episodes, "seed": args.seed},
+            )
+            payload = build_test_wandb_payload(core, sanity, difficulty)
+            payload["test/monotonicity_ok"] = float(monotonic_ok)
+            wandb.log(payload)
+            wandb.finish()
+            print(f"  Logged test results to wandb run '{run_name}' in project '{args.wandb_project}'")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import pybullet as p
 from stable_baselines3.common.callbacks import BaseCallback
 
 from env import ArmThrowEnv
+from metrics import _finite_mean, _finite_std, evaluate_episodes
 
 try:
     import wandb
@@ -116,80 +117,30 @@ class EpisodeRecorderCallback(BaseCallback):
             return None
 
 
-def _finite_mean(values):
-    finite_values = [float(v) for v in values if v is not None and np.isfinite(v)]
-    return float(np.mean(finite_values)) if finite_values else float("nan")
-
-
-def _finite_std(values):
-    finite_values = [float(v) for v in values if v is not None and np.isfinite(v)]
-    return float(np.std(finite_values)) if finite_values else float("nan")
-
-
 class WandbEvalCallback(BaseCallback):
     def __init__(self, eval_env, eval_freq=5000, n_eval_episodes=20, verbose=0):
         super().__init__(verbose)
         self.eval_env = eval_env
         self.eval_freq = eval_freq
         self.n_eval_episodes = n_eval_episodes
+        self._next_eval_at = eval_freq   # first eval fires at or after this timestep
 
     def _on_step(self) -> bool:
-        if self.num_timesteps % self.eval_freq != 0:
+        # Use a threshold comparison instead of modulo.
+        # Modulo never fires when rollout size (e.g. PPO n_steps=2048) doesn't
+        # divide evenly into eval_freq (e.g. 5000): 2048 % 5000 is never 0.
+        if self.num_timesteps < self._next_eval_at:
             return True
+        self._next_eval_at = self.num_timesteps + self.eval_freq
 
-        lengths = []
-        final_distances = []
-        min_distances = []
-        successes = []
-        releases = []
-        release_steps = []
-        release_ball_speeds = []
-        termination_ground_misses = []
-        termination_timeout_no_release = []
-        termination_timeout_after_release = []
-
-        for _ in range(self.n_eval_episodes):
-            obs, _ = self.eval_env.reset()
-            done = False
-            truncated = False
-            ep_len = 0
-            last_info = {}
-
-            while not (done or truncated):
-                action, _ = self.model.predict(obs, deterministic=True)
-                obs, _, done, truncated, info = self.eval_env.step(action)
-                ep_len += 1
-                last_info = info
-
-            lengths.append(ep_len)
-            final_distances.append(
-                last_info.get("final_distance_to_target", last_info.get("distance_to_target", np.nan))
-            )
-            min_distances.append(last_info.get("min_distance_to_target", np.nan))
-            successes.append(float(last_info.get("success", 0.0)))
-            releases.append(float(last_info.get("released", 0.0)))
-            release_steps.append(last_info.get("release_step", np.nan))
-            release_ball_speeds.append(last_info.get("release_ball_speed", np.nan))
-            termination_ground_misses.append(float(last_info.get("termination_ground_miss", 0.0)))
-            termination_timeout_no_release.append(float(last_info.get("termination_timeout_no_release", 0.0)))
-            termination_timeout_after_release.append(float(last_info.get("termination_timeout_after_release", 0.0)))
-
-        payload = {
-            "valid/mean_ep_length": float(np.mean(lengths)),
-            "valid/success_rate": float(np.mean(successes)),
-            "valid/release_rate": float(np.mean(releases)),
-            "valid/mean_final_distance": _finite_mean(final_distances),
-            "valid/std_final_distance": _finite_std(final_distances),
-            "valid/min_distance_to_target": _finite_mean(min_distances),
-            "valid/mean_release_step": _finite_mean(release_steps),
-            "valid/mean_release_ball_speed": _finite_mean(release_ball_speeds),
-            "valid/ground_miss_rate": float(np.mean(termination_ground_misses)),
-            "valid/timeout_no_release_rate": float(np.mean(termination_timeout_no_release)),
-            "valid/timeout_after_release_rate": float(np.mean(termination_timeout_after_release)),
-            "global_timestep": int(self.num_timesteps),
-        }
-
-        wandb.log(payload, step=self.num_timesteps)
+        metrics = evaluate_episodes(self.model, self.eval_env, self.n_eval_episodes)
+        sr = metrics.get("valid/success_rate", float("nan"))
+        md = metrics.get("valid/mean_final_distance", float("nan"))
+        print(
+            f"[eval @ {self.num_timesteps:,}]  "
+            f"success_rate={sr:.3f}  mean_final_dist={md:.3f}"
+        )
+        wandb.log({**metrics, "global_timestep": int(self.num_timesteps)}, step=self.num_timesteps)
         return True
 
 
@@ -219,10 +170,12 @@ class WandbTrainStatsCallback(BaseCallback):
     def __init__(self, log_freq=1000, verbose=0):
         super().__init__(verbose)
         self.log_freq = log_freq
+        self._next_log_at = log_freq
 
     def _on_step(self) -> bool:
-        if self.num_timesteps % self.log_freq != 0:
+        if self.num_timesteps < self._next_log_at:
             return True
+        self._next_log_at = self.num_timesteps + self.log_freq
 
         values = getattr(self.logger, "name_to_value", {})
         payload = {"global_timestep": int(self.num_timesteps)}
