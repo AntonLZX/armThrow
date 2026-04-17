@@ -118,11 +118,12 @@ class EpisodeRecorderCallback(BaseCallback):
 
 
 class WandbEvalCallback(BaseCallback):
-    def __init__(self, eval_env, eval_freq=5000, n_eval_episodes=20, verbose=0):
+    def __init__(self, eval_env, eval_freq=5000, n_eval_episodes=20, eval_seed=123, verbose=0):
         super().__init__(verbose)
         self.eval_env = eval_env
         self.eval_freq = eval_freq
         self.n_eval_episodes = n_eval_episodes
+        self.eval_seed = eval_seed
         self._next_eval_at = eval_freq   # first eval fires at or after this timestep
 
     def _on_step(self) -> bool:
@@ -133,7 +134,7 @@ class WandbEvalCallback(BaseCallback):
             return True
         self._next_eval_at = self.num_timesteps + self.eval_freq
 
-        metrics = evaluate_episodes(self.model, self.eval_env, self.n_eval_episodes)
+        metrics = evaluate_episodes(self.model, self.eval_env, self.n_eval_episodes, seed=self.eval_seed)
         sr = metrics.get("valid/success_rate", float("nan"))
         md = metrics.get("valid/mean_final_distance", float("nan"))
         print(

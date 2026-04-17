@@ -107,18 +107,24 @@ def _normalize_curriculum_condition(condition, path: str) -> dict:
             "metric": metric,
             "op": op,
             "value": _coerce_float(condition.get("value"), f"{path}.value"),
+            "consecutive": _coerce_int(condition.get("consecutive", 1), f"{path}.consecutive", minimum=1),
         }
 
     if condition_type == "plateau":
         mode = str(condition.get("mode", "min")).strip().lower()
         if mode not in {"min", "max"}:
             raise ValueError(f"{path}.mode must be 'min' or 'max', got {mode!r}")
+        rel_min_delta = condition.get("rel_min_delta")
+        if rel_min_delta is not None:
+            rel_min_delta = _coerce_float(rel_min_delta, f"{path}.rel_min_delta", minimum=0.0)
         return {
             "type": "plateau",
             "metric": metric,
             "mode": mode,
             "window": _coerce_int(condition.get("window", 3), f"{path}.window", minimum=2),
             "min_delta": _coerce_float(condition.get("min_delta", 0.0), f"{path}.min_delta", minimum=0.0),
+            "rel_min_delta": rel_min_delta,
+            "patience": _coerce_int(condition.get("patience", 1), f"{path}.patience", minimum=1),
         }
 
     raise ValueError(f"{path}.type must be 'threshold' or 'plateau', got {condition_type!r}")

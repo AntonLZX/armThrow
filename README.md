@@ -110,6 +110,8 @@ This entry point will:
 - run `stage1 -> stage2 -> stage3` sequentially
 - evaluate `valid/*` metrics after each configured chunk
 - switch or stop stages based on threshold / plateau rules defined in the curriculum YAML
+- support `threshold.consecutive` for "must pass N evals in a row"
+- support `plateau.rel_min_delta` + `plateau.patience` for relative, seed-robust plateau detection
 - save per-stage artifacts such as `config.yaml`, `eval_metrics.jsonl`, and `stage_summary.json`
 - save run-level artifacts such as `curriculum_config.yaml`, `curriculum_events.jsonl`, and `curriculum_summary.json`
 
@@ -330,31 +332,60 @@ Practical interpretation:
 
 ## Stage Switching Guidance
 
-The curriculum is not meant to be blindly hard-coded forever. The switching guidance below is an **experimental decision rule**, not code that runs automatically.
+The curriculum is not meant to be blindly hard-coded forever. The switching guidance below is an **experimental decision rule**. In this private snapshot, `train_curriculum.py` already implements a configurable first-pass automatic runner via the curriculum YAMLs; the guidance below is the higher-level rationale for how those rules should be chosen and tuned.
 
 - Stage 1 -> Stage 2
-  - `valid/mean_final_distance` has dropped and then plateaued
-  - `valid/mean_release_step` is stable
-  - `valid/mean_release_ball_speed` is stable
+  - `valid/release_rate` is high for several evals in a row
+  - `valid/timeout_no_release_rate` is low for several evals in a row
+  - `valid/mean_final_distance` has entered a **relative plateau**
   - nonzero success is not required yet
 
 - Stage 2 -> Stage 3
   - do not assume "longer is always better"
   - switch when Stage 2 first reaches a stable useful window:
-    - `valid/success_rate` is roughly in the `0.4 - 0.5` range
     - `valid/min_distance_to_target` is already close to `target_radius`
-    - `valid/mean_final_distance` is no longer rapidly improving, or has started to wobble
+    - `valid/min_distance_to_target` has entered a relative plateau
+    - `valid/mean_final_distance` has also entered a relative plateau
 
 - Stop Stage 3
-  - `valid/success_rate` has plateaued on the full-random task
-  - `valid/mean_final_distance` is no longer improving
-  - multiple eval windows are stable
+  - `valid/min_distance_to_target` is no longer materially improving
+  - `valid/mean_final_distance` is no longer materially improving
+  - multiple eval windows are stable via plateau patience
 
 Important:
 - Stage 2 is not monotonic in practice.
 - A tested `150k / 200k / 400k` schedule underperformed because Stage 2 was cut too early.
 - A tested `150k / 250k / 400k` schedule is the best single-seed branch, but it is not robust enough to replace the default yet.
 - Until a better schedule wins on multiple seeds, use `300k / 300k / 300k` as the default and treat more aggressive schedules as experimental candidates.
+
+## Automatic Curriculum Condition Semantics
+
+The automatic runner accepts two condition families:
+
+- `threshold`
+  - fields: `metric`, `op`, `value`
+  - optional: `consecutive`
+  - `consecutive: N` means the threshold must pass on the most recent `N` evals
+
+- `plateau`
+  - fields: `metric`, `mode`, `window`
+  - optional legacy field: `min_delta`
+  - optional new fields: `rel_min_delta`, `patience`
+  - if `rel_min_delta` is set, plateau is decided by **relative improvement** instead of absolute improvement
+  - `patience: P` means the last `P` overlapping plateau windows must all satisfy the plateau rule
+
+Compatibility notes:
+
+- existing YAMLs without `consecutive` still behave as a single-eval threshold check
+- existing YAMLs without `rel_min_delta` or `patience` still use the old absolute `min_delta` behavior
+
+Practical tuning guidance:
+
+- to make a threshold gate stricter, raise `consecutive`
+- to make a plateau easier to trigger, raise `rel_min_delta`
+- to make a plateau more stable but slower, raise `patience`
+- to make stage1 switch earlier, lower `stage1.min_timesteps`
+- to delay stage2 or stage3 stopping, lower `rel_min_delta`, raise `patience`, or raise the readiness threshold
 
 ## Config Semantics
 

@@ -169,62 +169,112 @@ def _compare_threshold(value: float, op: str, target: float) -> bool:
     raise ValueError(f"Unsupported threshold operator: {op}")
 
 
+def _evaluate_plateau_window(condition: dict, history_window: list[dict]) -> dict:
+    metric = condition["metric"]
+    values = [float(entry.get(metric, float("nan"))) for entry in history_window]
+    if not all(math.isfinite(value) for value in values):
+        return {
+            "passed": False,
+            "reason": "non_finite_values",
+            "values": values,
+        }
+
+    first_value = values[0]
+    if condition["mode"] == "min":
+        best_value = min(values)
+        abs_improvement = first_value - best_value
+    else:
+        best_value = max(values)
+        abs_improvement = best_value - first_value
+
+    denominator = max(abs(first_value), 1e-8)
+    rel_improvement = abs_improvement / denominator
+    rel_min_delta = condition.get("rel_min_delta")
+
+    if rel_min_delta is not None:
+        passed = rel_improvement <= rel_min_delta
+    else:
+        passed = abs_improvement <= condition["min_delta"]
+
+    return {
+        "passed": passed,
+        "values": values,
+        "first_value": first_value,
+        "best_value": best_value,
+        "abs_improvement": abs_improvement,
+        "rel_improvement": rel_improvement,
+        "min_delta": condition["min_delta"],
+        "rel_min_delta": rel_min_delta,
+    }
+
+
 def _evaluate_condition(condition: dict, history: list[dict]) -> dict:
     latest = history[-1]
     metric = condition["metric"]
 
     if condition["type"] == "threshold":
-        value = float(latest.get(metric, float("nan")))
-        passed = math.isfinite(value) and _compare_threshold(value, condition["op"], condition["value"])
+        consecutive = condition.get("consecutive", 1)
+        if len(history) < consecutive:
+            return {
+                "type": "threshold",
+                "metric": metric,
+                "passed": False,
+                "reason": "insufficient_history",
+                "consecutive": consecutive,
+            }
+
+        recent_values = [float(entry.get(metric, float("nan"))) for entry in history[-consecutive:]]
+        passed = all(
+            math.isfinite(value) and _compare_threshold(value, condition["op"], condition["value"])
+            for value in recent_values
+        )
         return {
             "type": "threshold",
             "metric": metric,
             "passed": passed,
-            "value": value,
+            "value": recent_values[-1],
+            "values": recent_values,
             "target": condition["value"],
             "op": condition["op"],
+            "consecutive": consecutive,
         }
 
     if condition["type"] == "plateau":
         window = condition["window"]
-        if len(history) < window:
+        patience = condition.get("patience", 1)
+        required_history = window + patience - 1
+        if len(history) < required_history:
             return {
                 "type": "plateau",
                 "metric": metric,
                 "passed": False,
                 "reason": "insufficient_history",
                 "window": window,
+                "patience": patience,
             }
 
-        recent_values = [float(entry.get(metric, float("nan"))) for entry in history[-window:]]
-        if not all(math.isfinite(value) for value in recent_values):
-            return {
-                "type": "plateau",
-                "metric": metric,
-                "passed": False,
-                "reason": "non_finite_values",
-                "window": window,
-                "values": recent_values,
-            }
+        window_checks = []
+        end_start = len(history) - patience + 1
+        for end in range(end_start, len(history) + 1):
+            start = end - window
+            window_result = _evaluate_plateau_window(condition, history[start:end])
+            window_result["history_index_range"] = [start, end - 1]
+            window_checks.append(window_result)
 
-        first_value = recent_values[0]
-        if condition["mode"] == "min":
-            best_value = min(recent_values)
-            improvement = first_value - best_value
-        else:
-            best_value = max(recent_values)
-            improvement = best_value - first_value
-
-        passed = improvement <= condition["min_delta"]
+        passed = all(check["passed"] for check in window_checks)
         return {
             "type": "plateau",
             "metric": metric,
             "passed": passed,
             "mode": condition["mode"],
             "window": window,
-            "values": recent_values,
-            "improvement": improvement,
+            "patience": patience,
+            "windows": window_checks,
+            "values": window_checks[-1].get("values", []),
+            "abs_improvement": window_checks[-1].get("abs_improvement"),
+            "rel_improvement": window_checks[-1].get("rel_improvement"),
             "min_delta": condition["min_delta"],
+            "rel_min_delta": condition.get("rel_min_delta"),
         }
 
     raise ValueError(f"Unsupported condition type: {condition['type']}")

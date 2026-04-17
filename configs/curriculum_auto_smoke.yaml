@@ -26,11 +26,14 @@ curriculum:
             metric: "valid/release_rate"
             op: ">="
             value: 0.0
+            consecutive: 1
           - type: "plateau"
             metric: "valid/mean_final_distance"
             mode: "min"
             window: 2
-            min_delta: 999.0
+            min_delta: 0.0
+            rel_min_delta: 999.0
+            patience: 1
     - name: "stage2"
       config: "narrow_random_stage2_smoke.yaml"
       min_timesteps: 1024
@@ -40,14 +43,17 @@ curriculum:
         logic: "all"
         conditions:
           - type: "threshold"
-            metric: "valid/success_rate"
-            op: ">="
-            value: 0.0
+            metric: "valid/min_distance_to_target"
+            op: "<="
+            value: 999.0
+            consecutive: 1
           - type: "plateau"
             metric: "valid/mean_final_distance"
             mode: "min"
             window: 2
-            min_delta: 999.0
+            min_delta: 0.0
+            rel_min_delta: 999.0
+            patience: 1
     - name: "stage3"
       config: "random_full_stage3_smoke.yaml"
       min_timesteps: 1024
@@ -57,13 +63,16 @@ curriculum:
         logic: "all"
         conditions:
           - type: "plateau"
-            metric: "valid/success_rate"
-            mode: "max"
+            metric: "valid/min_distance_to_target"
+            mode: "min"
             window: 2
-            min_delta: 999.0
+            min_delta: 0.0
+            rel_min_delta: 999.0
+            patience: 1
           - type: "plateau"
             metric: "valid/mean_final_distance"
             mode: "min"
             window: 2
-            min_delta: 999.0
-
+            min_delta: 0.0
+            rel_min_delta: 999.0
+            patience: 1

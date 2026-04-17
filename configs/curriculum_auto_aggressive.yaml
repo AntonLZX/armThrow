@@ -7,7 +7,7 @@ logging:
   project: "arm-throw"
   entity: "nus-me5406"
   tags: ["curriculum-auto", "aggressive"]
-  notes: "Automatic curriculum runner with aggressive 150k/250k/400k budget caps"
+  notes: "Automatic curriculum runner with relative plateau switching and aggressive 150k/250k/400k budget caps"
 
 curriculum:
   eval_freq: 5000
@@ -16,7 +16,7 @@ curriculum:
   stages:
     - name: "stage1"
       config: "fixed_center_stage1_150k.yaml"
-      min_timesteps: 60000
+      min_timesteps: 10000
       max_timesteps: 150000
       decision:
         action: "switch"
@@ -26,11 +26,19 @@ curriculum:
             metric: "valid/release_rate"
             op: ">="
             value: 0.95
+            consecutive: 3
+          - type: "threshold"
+            metric: "valid/timeout_no_release_rate"
+            op: "<="
+            value: 0.05
+            consecutive: 3
           - type: "plateau"
             metric: "valid/mean_final_distance"
             mode: "min"
             window: 3
-            min_delta: 0.015
+            min_delta: 0.0
+            rel_min_delta: 0.03
+            patience: 3
     - name: "stage2"
       config: "narrow_random_stage2_250k_from_stage1_150k.yaml"
       min_timesteps: 100000
@@ -40,18 +48,24 @@ curriculum:
         logic: "all"
         conditions:
           - type: "threshold"
-            metric: "valid/success_rate"
-            op: ">="
-            value: 0.40
-          - type: "threshold"
             metric: "valid/min_distance_to_target"
             op: "<="
             value: 0.13
+            consecutive: 3
+          - type: "plateau"
+            metric: "valid/min_distance_to_target"
+            mode: "min"
+            window: 3
+            min_delta: 0.0
+            rel_min_delta: 0.03
+            patience: 3
           - type: "plateau"
             metric: "valid/mean_final_distance"
             mode: "min"
             window: 3
-            min_delta: 0.015
+            min_delta: 0.0
+            rel_min_delta: 0.03
+            patience: 3
     - name: "stage3"
       config: "random_full_stage3_400k_after_stage2_250k.yaml"
       min_timesteps: 200000
@@ -61,13 +75,16 @@ curriculum:
         logic: "all"
         conditions:
           - type: "plateau"
-            metric: "valid/success_rate"
-            mode: "max"
+            metric: "valid/min_distance_to_target"
+            mode: "min"
             window: 4
-            min_delta: 0.02
+            min_delta: 0.0
+            rel_min_delta: 0.03
+            patience: 3
           - type: "plateau"
             metric: "valid/mean_final_distance"
             mode: "min"
             window: 4
-            min_delta: 0.01
-
+            min_delta: 0.0
+            rel_min_delta: 0.03
+            patience: 3

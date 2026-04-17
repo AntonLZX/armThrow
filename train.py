@@ -130,7 +130,7 @@ def main(config_path="configs/base.yaml", render=None, load_model_path=None, see
             ),
             WandbEpisodeCallback(),
             WandbTrainStatsCallback(log_freq=1000),
-            WandbEvalCallback(eval_env=eval_env, eval_freq=5000, n_eval_episodes=20),
+            WandbEvalCallback(eval_env=eval_env, eval_freq=5000, n_eval_episodes=20, eval_seed=123),
         ])
 
     model.learn(

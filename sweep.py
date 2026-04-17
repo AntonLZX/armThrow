@@ -97,7 +97,7 @@ def run_trial(base_cfg: dict):
         WandbCallback(model_save_path=str(run_dir / "wandb_models"), model_save_freq=0, verbose=0),
         WandbEpisodeCallback(),
         WandbTrainStatsCallback(log_freq=1000),
-        WandbEvalCallback(eval_env=eval_env, eval_freq=5000, n_eval_episodes=10),
+        WandbEvalCallback(eval_env=eval_env, eval_freq=5000, n_eval_episodes=10, eval_seed=123),
     ]
 
     model.learn(
