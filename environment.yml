@@ -1,9 +1,14 @@
 name: armThrow
 channels:
+  - pytorch
   - conda-forge
   - defaults
 dependencies:
   - python=3.11
+  - pytorch::pytorch::*=*cuda12*
+  - pytorch::pytorch-cuda=12.1
+  - pytorch::torchvision
+  - pytorch::torchaudio
   - pip
   - pip:
       - pybullet
@@ -12,3 +17,4 @@ dependencies:
       - wandb
       - PyYAML
       - imageio
+      - nomkl  # This prevents Intel MKL's libomp conflicts

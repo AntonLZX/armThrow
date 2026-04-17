@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import torch
 import yaml
 
 from stable_baselines3 import A2C, DDPG, PPO, SAC, TD3
@@ -42,7 +43,17 @@ def _get_algo_class(name: str):
 def _build_algo_kwargs(algo_name: str, algo_cfg: dict, seed: int, tb_log: str) -> dict:
     accepted = _ALGO_KEYS[algo_name]
     kwargs = {k: v for k, v in algo_cfg.items() if k in accepted}
-    kwargs.update(verbose=1, device="auto", seed=seed, tensorboard_log=tb_log)
+    # Detect GPU: try CUDA, fall back to CPU with diagnostic info
+    if torch.cuda.is_available():
+        device = "cuda"
+        print("✓ GPU (CUDA) detected and will be used")
+    else:
+        device = "cpu"
+        print("⚠  GPU not available. You may need to:")
+        print("   - Update NVIDIA driver (run: nvidia-smi to check version)")
+        print("   - Check PyTorch CUDA compatibility")
+        print("   - Training will proceed on CPU (slower, but functional)")
+    kwargs.update(verbose=1, device=device, seed=seed, tensorboard_log=tb_log)
     return kwargs
 
 
@@ -68,7 +79,8 @@ def main(config_path="configs/base.yaml", render=None, load_model_path=None, see
         model_path = Path(load_model_path).expanduser().resolve()
         if not model_path.exists():
             raise FileNotFoundError(f"Initial model not found: {model_path}")
-        model = algo_class.load(str(model_path), env=env, device="auto")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = algo_class.load(str(model_path), env=env, device=device)
         model.verbose = 1
         model.tensorboard_log = str(run_dir / "tb")
         print(f"Loaded initial weights from: {model_path}")

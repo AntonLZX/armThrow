@@ -24,6 +24,18 @@ class ArmThrowEnv(gym.Env):
         self.target_radius = float(cfg.get("target_radius", 0.1))
         self.observation_mode = cfg.get("observation_mode", "arm_target_release")
         self.visualize_target = bool(cfg.get("visualize_target", True))
+        # Reward scaling factors for distance_progress mode
+        self.pre_release_action_penalty = float(cfg.get("pre_release_action_penalty", 0.0005))
+        self.pre_release_const_penalty = float(cfg.get("pre_release_const_penalty", 0.001))
+        self.progress_shaping_scale = float(cfg.get("progress_shaping_scale", 2.0))
+        self.progress_shaping_function = cfg.get("progress_shaping_function", "exponential")
+        self.progress_shaping_param = float(cfg.get("progress_shaping_param", 1.5))
+        
+        if self.progress_shaping_function not in {"exponential", "tanh", "polynomial_3", "polynomial_5", "inverse_square"}:
+            raise ValueError(
+                f"Unsupported progress_shaping_function={self.progress_shaping_function!r}; "
+                "expected one of: 'exponential', 'tanh', 'polynomial_3', 'polynomial_5', 'inverse_square'"
+            )
         if self.reward_mode not in {"absolute_distance", "distance_progress"}:
             raise ValueError(
                 f"Unsupported reward_mode={self.reward_mode!r}; expected 'absolute_distance' or 'distance_progress'"
@@ -75,19 +87,88 @@ class ArmThrowEnv(gym.Env):
         self.target_debug_item_ids = []
         self.target_success_text_id = None
 
+    def _compute_shaping_potential(self, distance: float) -> float:
+        """
+        Compute the shaping potential based on distance and selected function.
+        
+        Different function options:
+        - exponential: exp(-param * distance)
+        - tanh: tanh(param / distance) [inverse distance tanh]
+        - polynomial_3: 1 / (1 + distance^3)
+        - polynomial_5: 1 / (1 + distance^5)
+        - inverse_square: 1 / (1 + distance^2)
+        """
+        if self.progress_shaping_function == "exponential":
+            return float(np.exp(-self.progress_shaping_param * distance))
+        elif self.progress_shaping_function == "tanh":
+            # Use param as scaling factor for the input
+            return float(np.tanh(self.progress_shaping_param / (distance + 1e-6)))
+        elif self.progress_shaping_function == "polynomial_3":
+            return float(1.0 / (1.0 + self.progress_shaping_param * (distance ** 3)))
+        elif self.progress_shaping_function == "polynomial_5":
+            return float(1.0 / (1.0 + self.progress_shaping_param * (distance ** 5)))
+        elif self.progress_shaping_function == "inverse_square":
+            return float(1.0 / (1.0 + self.progress_shaping_param * (distance ** 2)))
+        else:
+            return float(np.exp(-self.progress_shaping_param * distance))
+
     def _sample_target(self):
         target_cfg = self.cfg["target"]
         if target_cfg["mode"] == "fixed":
             return np.array(target_cfg["fixed"], dtype=np.float32)
 
-        xr = target_cfg["random"]["x"]
-        yr = target_cfg["random"]["y"]
-        zr = target_cfg["random"]["z"]
-        return np.array([
-            self.np_random.uniform(xr[0], xr[1]),
-            self.np_random.uniform(yr[0], yr[1]),
-            self.np_random.uniform(zr[0], zr[1]),
-        ], dtype=np.float32)
+        random_cfg = target_cfg["random"]
+        sampling_mode = random_cfg.get("sampling_mode", "uniform_xyz")
+        
+        if sampling_mode == "sphere_with_cylinder_exclusion":
+            return self._sample_sphere_with_cylinder_exclusion(random_cfg)
+        else:
+            # Default: uniform x/y/z sampling
+            xr = random_cfg["x"]
+            yr = random_cfg["y"]
+            zr = random_cfg["z"]
+            return np.array([
+                self.np_random.uniform(xr[0], xr[1]),
+                self.np_random.uniform(yr[0], yr[1]),
+                self.np_random.uniform(zr[0], zr[1]),
+            ], dtype=np.float32)
+
+    def _sample_sphere_with_cylinder_exclusion(self, random_cfg):
+        """Sample a point uniformly in a sphere, excluding a cylinder."""
+        sphere_cfg = random_cfg["sphere"]
+        cylinder_cfg = random_cfg["cylinder_exclusion"]
+        
+        sphere_center = np.array(sphere_cfg["center"], dtype=np.float32)
+        sphere_radius = float(sphere_cfg["radius"])
+        
+        cylinder_center = np.array(cylinder_cfg["center"], dtype=np.float32)
+        cylinder_radius = float(cylinder_cfg["radius"])
+        cylinder_height = float(cylinder_cfg["height"])
+        
+        max_attempts = 1000
+        for _ in range(max_attempts):
+            # Sample uniformly in sphere
+            while True:
+                u = self.np_random.uniform(-1, 1, 3)
+                r_sq = np.sum(u ** 2)
+                if r_sq <= 1.0:
+                    break
+            
+            # Scale to sphere
+            point = sphere_center + u * sphere_radius
+            
+            # Check if point is in cylinder exclusion zone
+            rel_pos = point - cylinder_center
+            horizontal_dist = np.sqrt(rel_pos[0]**2 + rel_pos[1]**2)
+            vertical_dist = np.abs(rel_pos[2])
+            
+            # If not in exclusion cylinder, return this point
+            if horizontal_dist > cylinder_radius or vertical_dist > cylinder_height / 2.0:
+                return point.astype(np.float32)
+        
+        # Fallback if max attempts exceeded (shouldn't happen with reasonable geometry)
+        return sphere_center.astype(np.float32)
+
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -332,22 +413,22 @@ class ArmThrowEnv(gym.Env):
             if self.prev_dist_to_target is not None
             else float(dist_to_target)
         )
-        phi_t = float(np.exp(-1.5 * dist_to_target))
-        phi_prev = float(np.exp(-1.5 * prev_dist_to_target))
+        phi_t = self._compute_shaping_potential(dist_to_target)
+        phi_prev = self._compute_shaping_potential(prev_dist_to_target)
 
         reward = 0.0
 
         if self.reward_mode == "absolute_distance":
             if not self.released:
-                pre_release_penalty -= 0.0005 * float(np.sum(np.square(action[:3])))
+                pre_release_penalty -= self.pre_release_action_penalty * float(np.sum(np.square(action[:3])))
             elif ball_pos[2] >= 0.05:
                 shaping_component += phi_t
         else:
             if not self.released:
-                pre_release_penalty -= 0.0005 * float(np.sum(np.square(action[:3])))
-                pre_release_penalty -= 0.001
+                pre_release_penalty -= self.pre_release_action_penalty * float(np.sum(np.square(action[:3])))
+                pre_release_penalty -= self.pre_release_const_penalty
             elif ball_pos[2] >= 0.05:
-                shaping_component += 2.0 * (phi_t - phi_prev)
+                shaping_component += self.progress_shaping_scale * (phi_t - phi_prev)
 
         if released_this_step:
             release_bonus_component += self.release_success_bonus
