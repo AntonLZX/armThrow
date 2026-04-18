@@ -161,6 +161,17 @@ class WandbEpisodeCallback(BaseCallback):
                     "episode/final_distance": float(info.get("final_distance_to_target", np.nan)),
                     "episode/release_step": float(info.get("release_step", np.nan)),
                     "episode/release_ball_speed": float(info.get("release_ball_speed", np.nan)),
+                    "episode/release_signed_yaw_error_rad": float(info.get("release_signed_yaw_error_rad", np.nan)),
+                    "episode/release_abs_yaw_error_rad": float(info.get("release_abs_yaw_error_rad", np.nan)),
+                    "episode/mean_pre_release_abs_yaw_error_rad": float(
+                        info.get("mean_pre_release_abs_yaw_error_rad", np.nan)
+                    ),
+                    "episode/min_pre_release_abs_yaw_error_rad": float(
+                        info.get("min_pre_release_abs_yaw_error_rad", np.nan)
+                    ),
+                    "episode/pre_release_joint0_range_rad": float(
+                        info.get("pre_release_joint0_range_rad", np.nan)
+                    ),
                     "global_timestep": int(self.num_timesteps),
                 }
                 wandb.log(payload, step=self.num_timesteps)

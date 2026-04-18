@@ -1,0 +1,38 @@
+seed: 42
+run_name: "curriculum-cutpoint-sweep-stage1-to-stage2-smoke"
+
+logging:
+  save_dir: "runs"
+  use_wandb: true
+  project: "arm-throw"
+  entity: "nus-me5406"
+  tags: ["curriculum-cutpoint-sweep", "stage1-to-stage2", "smoke"]
+  notes: "Smoke validation for stage1-to-stage2 cutpoint harness"
+  sync_tensorboard: false
+
+comparison_anchors: []
+
+sweep:
+  eval_freq: 512
+  n_eval_episodes: 5
+  deterministic_eval: true
+  success_threshold: 0.05
+  stage2_early_window_timesteps: 512
+  stage3_early_window_timesteps: 1024
+  bad_regime_ground_miss_threshold: 0.9
+
+  prelude_stages: []
+
+  upstream:
+    name: "stage1_bank"
+    config: "fixed_center_stage1_smoke.yaml"
+    max_timesteps: 1536
+    cutpoints: [512, 1024, 1536]
+
+  downstream_chain:
+    - name: "stage2"
+      config: "narrow_random_stage2_smoke.yaml"
+      max_timesteps: 1536
+    - name: "stage3"
+      config: "random_full_stage3_smoke.yaml"
+      max_timesteps: 1536

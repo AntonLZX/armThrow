@@ -81,6 +81,13 @@ class ArmThrowEnv(gym.Env):
         self.action_norm_sum = 0.0
         self.cumulative_abs_joint_velocity = 0.0
         self.max_abs_joint_velocity = 0.0
+        self.pre_release_abs_yaw_error_sum = 0.0
+        self.pre_release_abs_yaw_error_min = None
+        self.pre_release_joint0_yaw_min = None
+        self.pre_release_joint0_yaw_max = None
+        self.pre_release_alignment_steps = 0
+        self.release_signed_yaw_error = None
+        self.release_abs_yaw_error = None
         self.target_shell_id = None
         self.target_center_id = None
         self.target_success_halo_id = None
@@ -111,6 +118,17 @@ class ArmThrowEnv(gym.Env):
             return float(1.0 / (1.0 + self.progress_shaping_param * (distance ** 2)))
         else:
             return float(np.exp(-self.progress_shaping_param * distance))
+
+    @staticmethod
+    def _wrap_to_pi(angle: float) -> float:
+        return float((angle + np.pi) % (2.0 * np.pi) - np.pi)
+
+    def _compute_target_yaw_rad(self) -> float:
+        base_pos, _ = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
+        target_delta_xy = np.asarray(self.target_pos[:2], dtype=np.float32) - np.asarray(
+            base_pos[:2], dtype=np.float32
+        )
+        return float(np.arctan2(target_delta_xy[1], target_delta_xy[0]))
 
     def _sample_target(self):
         target_cfg = self.cfg["target"]
@@ -239,6 +257,13 @@ class ArmThrowEnv(gym.Env):
         self.action_norm_sum = 0.0
         self.cumulative_abs_joint_velocity = 0.0
         self.max_abs_joint_velocity = 0.0
+        self.pre_release_abs_yaw_error_sum = 0.0
+        self.pre_release_abs_yaw_error_min = None
+        self.pre_release_joint0_yaw_min = None
+        self.pre_release_joint0_yaw_max = None
+        self.pre_release_alignment_steps = 0
+        self.release_signed_yaw_error = None
+        self.release_abs_yaw_error = None
         return self._get_obs(), {}
 
     def _create_visual_sphere(self, radius, rgba, position):
@@ -348,6 +373,7 @@ class ArmThrowEnv(gym.Env):
     def step(self, action):
         action = np.asarray(action, dtype=np.float32)
         action = np.clip(action, -1.0, 1.0)
+        was_released = self.released
         released_this_step = False
         success = False
         pre_release_penalty = 0.0
@@ -405,6 +431,26 @@ class ArmThrowEnv(gym.Env):
         ball_vel, _ = p.getBaseVelocity(self.ball_id, physicsClientId=self.client)
         ball_vel = np.array(ball_vel, dtype=np.float32)
         ball_speed = float(np.linalg.norm(ball_vel))
+
+        joint0_yaw_rad = float(p.getJointState(self.robot_id, 0, physicsClientId=self.client)[0])
+        target_yaw_rad = self._compute_target_yaw_rad()
+        signed_yaw_error_rad = self._wrap_to_pi(target_yaw_rad - joint0_yaw_rad)
+        abs_yaw_error_rad = abs(signed_yaw_error_rad)
+
+        if not was_released:
+            self.pre_release_alignment_steps += 1
+            self.pre_release_abs_yaw_error_sum += abs_yaw_error_rad
+            if self.pre_release_abs_yaw_error_min is None:
+                self.pre_release_abs_yaw_error_min = abs_yaw_error_rad
+            else:
+                self.pre_release_abs_yaw_error_min = min(self.pre_release_abs_yaw_error_min, abs_yaw_error_rad)
+
+            if self.pre_release_joint0_yaw_min is None:
+                self.pre_release_joint0_yaw_min = joint0_yaw_rad
+                self.pre_release_joint0_yaw_max = joint0_yaw_rad
+            else:
+                self.pre_release_joint0_yaw_min = min(self.pre_release_joint0_yaw_min, joint0_yaw_rad)
+                self.pre_release_joint0_yaw_max = max(self.pre_release_joint0_yaw_max, joint0_yaw_rad)
 
         dist_to_target = np.linalg.norm(ball_pos - self.target_pos)
 
@@ -473,12 +519,24 @@ class ArmThrowEnv(gym.Env):
             self.release_step = self.step_count
             self.release_distance_to_target = float(dist_to_target)
             self.release_ball_speed = ball_speed
+            self.release_signed_yaw_error = signed_yaw_error_rad
+            self.release_abs_yaw_error = abs_yaw_error_rad
 
         self.pre_release_penalty_sum += pre_release_penalty
         self.shaping_reward_sum += shaping_component
         self.release_bonus_sum += release_bonus_component
         self.success_bonus_sum += success_bonus_component
         self.failure_penalty_sum += failure_penalty_component
+
+        mean_pre_release_abs_yaw_error = float("nan")
+        if self.pre_release_alignment_steps > 0:
+            mean_pre_release_abs_yaw_error = float(
+                self.pre_release_abs_yaw_error_sum / self.pre_release_alignment_steps
+            )
+
+        pre_release_joint0_range = float("nan")
+        if self.pre_release_joint0_yaw_min is not None and self.pre_release_joint0_yaw_max is not None:
+            pre_release_joint0_range = float(self.pre_release_joint0_yaw_max - self.pre_release_joint0_yaw_min)
 
         info = {
             "distance_to_target": float(dist_to_target),
@@ -510,6 +568,23 @@ class ArmThrowEnv(gym.Env):
             "max_abs_joint_velocity": float(self.max_abs_joint_velocity),
             "mean_abs_joint_velocity": float(self.cumulative_abs_joint_velocity / max(self.step_count, 1)),
             "mean_action_norm": float(self.action_norm_sum / max(self.step_count, 1)),
+            "release_signed_yaw_error_rad": (
+                float(self.release_signed_yaw_error)
+                if self.release_signed_yaw_error is not None
+                else float("nan")
+            ),
+            "release_abs_yaw_error_rad": (
+                float(self.release_abs_yaw_error)
+                if self.release_abs_yaw_error is not None
+                else float("nan")
+            ),
+            "mean_pre_release_abs_yaw_error_rad": mean_pre_release_abs_yaw_error,
+            "min_pre_release_abs_yaw_error_rad": (
+                float(self.pre_release_abs_yaw_error_min)
+                if self.pre_release_abs_yaw_error_min is not None
+                else float("nan")
+            ),
+            "pre_release_joint0_range_rad": pre_release_joint0_range,
             "target_x": float(self.target_pos[0]),
             "target_y": float(self.target_pos[1]),
             "target_z": float(self.target_pos[2]),

@@ -63,6 +63,9 @@ def evaluate_episodes(model, env, n_episodes, seed=None, verbose=False, determin
     pre_release_penalties, shapings, release_bonuses = [], [], []
     success_bonuses, failure_penalties = [], []
     max_joint_vels, mean_joint_vels, action_norms = [], [], []
+    release_signed_yaw_errors, release_abs_yaw_errors = [], []
+    mean_pre_release_abs_yaw_errors, min_pre_release_abs_yaw_errors = [], []
+    pre_release_joint0_ranges = []
 
     for i in range(n_episodes):
         ep_seed = (seed + i) if seed is not None else None
@@ -96,6 +99,11 @@ def evaluate_episodes(model, env, n_episodes, seed=None, verbose=False, determin
         max_joint_vels.append(last_info.get("max_abs_joint_velocity", np.nan))
         mean_joint_vels.append(last_info.get("mean_abs_joint_velocity", np.nan))
         action_norms.append(last_info.get("mean_action_norm", np.nan))
+        release_signed_yaw_errors.append(last_info.get("release_signed_yaw_error_rad", np.nan))
+        release_abs_yaw_errors.append(last_info.get("release_abs_yaw_error_rad", np.nan))
+        mean_pre_release_abs_yaw_errors.append(last_info.get("mean_pre_release_abs_yaw_error_rad", np.nan))
+        min_pre_release_abs_yaw_errors.append(last_info.get("min_pre_release_abs_yaw_error_rad", np.nan))
+        pre_release_joint0_ranges.append(last_info.get("pre_release_joint0_range_rad", np.nan))
 
         if verbose and (i + 1) % max(1, n_episodes // 10) == 0:
             print(f"  [{i + 1:4d}/{n_episodes}] running success_rate={float(np.mean(successes)):.3f}")
@@ -124,6 +132,11 @@ def evaluate_episodes(model, env, n_episodes, seed=None, verbose=False, determin
         "control/max_abs_joint_velocity":   _finite_mean(max_joint_vels),
         "control/mean_abs_joint_velocity":  _finite_mean(mean_joint_vels),
         "control/mean_action_norm":         _finite_mean(action_norms),
+        "control/release_signed_yaw_error_rad":      _finite_mean(release_signed_yaw_errors),
+        "control/release_abs_yaw_error_rad":         _finite_mean(release_abs_yaw_errors),
+        "control/mean_pre_release_abs_yaw_error_rad": _finite_mean(mean_pre_release_abs_yaw_errors),
+        "control/min_pre_release_abs_yaw_error_rad":  _finite_mean(min_pre_release_abs_yaw_errors),
+        "control/pre_release_joint0_range_rad":     _finite_mean(pre_release_joint0_ranges),
     }
 
 

@@ -1,0 +1,72 @@
+seed: 42
+run_name: "debug-metric-followup-anchor-replay-300-300-300-seed-42"
+
+logging:
+  save_dir: "runs"
+  use_wandb: true
+  project: "arm-throw"
+  entity: "nus-me5406"
+  tags: ["curriculum-auto", "debug-metric-followup", "anchor-replay", "300-300-300", "seed-42"]
+  notes: "Follow-up rerun to add yaw and joint0 debug metrics to the latest replay 300/300/300 anchor"
+
+curriculum:
+  eval_freq: 5000
+  n_eval_episodes: 20
+  deterministic_eval: true
+  stages:
+    - name: "stage1"
+      config: "fixed_center_stage1_300k.yaml"
+      min_timesteps: 300000
+      max_timesteps: 300000
+      decision:
+        action: "switch"
+        logic: "all"
+        conditions:
+          - type: "threshold"
+            metric: "valid/release_rate"
+            op: ">="
+            value: 0.95
+          - type: "plateau"
+            metric: "valid/mean_final_distance"
+            mode: "min"
+            window: 3
+            min_delta: 0.01
+    - name: "stage2"
+      config: "narrow_random_stage2_300k.yaml"
+      min_timesteps: 300000
+      max_timesteps: 300000
+      decision:
+        action: "switch"
+        logic: "all"
+        conditions:
+          - type: "threshold"
+            metric: "valid/success_rate"
+            op: ">="
+            value: 0.40
+          - type: "threshold"
+            metric: "valid/min_distance_to_target"
+            op: "<="
+            value: 0.13
+          - type: "plateau"
+            metric: "valid/mean_final_distance"
+            mode: "min"
+            window: 3
+            min_delta: 0.01
+    - name: "stage3"
+      config: "random_full_stage3_300k.yaml"
+      min_timesteps: 300000
+      max_timesteps: 300000
+      decision:
+        action: "stop"
+        logic: "all"
+        conditions:
+          - type: "plateau"
+            metric: "valid/success_rate"
+            mode: "max"
+            window: 4
+            min_delta: 0.02
+          - type: "plateau"
+            metric: "valid/mean_final_distance"
+            mode: "min"
+            window: 4
+            min_delta: 0.01
