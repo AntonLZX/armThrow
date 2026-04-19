@@ -96,19 +96,64 @@ def _normalize_curriculum_condition(condition, path: str) -> dict:
         raise TypeError(f"{path} must be a mapping")
 
     condition_type = str(condition.get("type", "threshold")).strip().lower()
+    name = str(condition.get("name", "") or "").strip()
+
+    if condition_type == "group":
+        logic = str(condition.get("logic", "all")).strip().lower()
+        if logic not in {"all", "any"}:
+            raise ValueError(f"{path}.logic must be 'all' or 'any', got {logic!r}")
+        conditions_raw = condition.get("conditions", [])
+        if not isinstance(conditions_raw, list) or not conditions_raw:
+            raise TypeError(f"{path}.conditions must be a non-empty list for group conditions")
+        normalized = {
+            "type": "group",
+            "logic": logic,
+            "conditions": [
+                _normalize_curriculum_condition(child, f"{path}.conditions[{index}]")
+                for index, child in enumerate(conditions_raw)
+            ],
+        }
+        if name:
+            normalized["name"] = name
+        return normalized
+
     metric = _coerce_str(condition.get("metric"), f"{path}.metric")
 
     if condition_type == "threshold":
         op = str(condition.get("op", ">=")).strip()
         if op not in {">=", ">", "<=", "<", "=="}:
             raise ValueError(f"{path}.op must be one of >=, >, <=, <, ==, got {op!r}")
-        return {
+        normalized = {
             "type": "threshold",
             "metric": metric,
             "op": op,
             "value": _coerce_float(condition.get("value"), f"{path}.value"),
             "consecutive": _coerce_int(condition.get("consecutive", 1), f"{path}.consecutive", minimum=1),
         }
+        if name:
+            normalized["name"] = name
+        return normalized
+
+    if condition_type == "window_stat":
+        statistic = str(condition.get("statistic", "mean")).strip().lower()
+        if statistic not in {"mean", "min", "max", "last"}:
+            raise ValueError(
+                f"{path}.statistic must be one of mean, min, max, last, got {statistic!r}"
+            )
+        op = str(condition.get("op", ">=")).strip()
+        if op not in {">=", ">", "<=", "<", "=="}:
+            raise ValueError(f"{path}.op must be one of >=, >, <=, <, ==, got {op!r}")
+        normalized = {
+            "type": "window_stat",
+            "metric": metric,
+            "statistic": statistic,
+            "window": _coerce_int(condition.get("window", 3), f"{path}.window", minimum=1),
+            "op": op,
+            "value": _coerce_float(condition.get("value"), f"{path}.value"),
+        }
+        if name:
+            normalized["name"] = name
+        return normalized
 
     if condition_type == "plateau":
         mode = str(condition.get("mode", "min")).strip().lower()
@@ -117,7 +162,7 @@ def _normalize_curriculum_condition(condition, path: str) -> dict:
         rel_min_delta = condition.get("rel_min_delta")
         if rel_min_delta is not None:
             rel_min_delta = _coerce_float(rel_min_delta, f"{path}.rel_min_delta", minimum=0.0)
-        return {
+        normalized = {
             "type": "plateau",
             "metric": metric,
             "mode": mode,
@@ -126,8 +171,14 @@ def _normalize_curriculum_condition(condition, path: str) -> dict:
             "rel_min_delta": rel_min_delta,
             "patience": _coerce_int(condition.get("patience", 1), f"{path}.patience", minimum=1),
         }
+        if name:
+            normalized["name"] = name
+        return normalized
 
-    raise ValueError(f"{path}.type must be 'threshold' or 'plateau', got {condition_type!r}")
+    raise ValueError(
+        f"{path}.type must be 'threshold', 'window_stat', 'plateau', or 'group', "
+        f"got {condition_type!r}"
+    )
 
 
 def _normalize_stage_decision(decision, path: str, is_last_stage: bool) -> dict:

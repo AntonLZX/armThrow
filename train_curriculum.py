@@ -208,27 +208,59 @@ def _evaluate_plateau_window(condition: dict, history_window: list[dict]) -> dic
     }
 
 
+def _window_statistic(values: list[float], statistic: str) -> float:
+    if statistic == "mean":
+        return float(sum(values) / len(values))
+    if statistic == "min":
+        return float(min(values))
+    if statistic == "max":
+        return float(max(values))
+    if statistic == "last":
+        return float(values[-1])
+    raise ValueError(f"Unsupported window statistic: {statistic}")
+
+
+def _attach_condition_name(condition: dict, result: dict) -> dict:
+    if condition.get("name"):
+        result["name"] = condition["name"]
+    return result
+
+
+def _combine_condition_results(logic: str, checks: list[dict]) -> bool:
+    return all(check["passed"] for check in checks) if logic == "all" else any(
+        check["passed"] for check in checks
+    )
+
+
 def _evaluate_condition(condition: dict, history: list[dict]) -> dict:
-    latest = history[-1]
+    if condition["type"] == "group":
+        checks = [_evaluate_condition(child, history) for child in condition["conditions"]]
+        return _attach_condition_name(condition, {
+            "type": "group",
+            "logic": condition["logic"],
+            "passed": _combine_condition_results(condition["logic"], checks),
+            "checks": checks,
+        })
+
     metric = condition["metric"]
 
     if condition["type"] == "threshold":
         consecutive = condition.get("consecutive", 1)
         if len(history) < consecutive:
-            return {
+            return _attach_condition_name(condition, {
                 "type": "threshold",
                 "metric": metric,
                 "passed": False,
                 "reason": "insufficient_history",
                 "consecutive": consecutive,
-            }
+            })
 
         recent_values = [float(entry.get(metric, float("nan"))) for entry in history[-consecutive:]]
         passed = all(
             math.isfinite(value) and _compare_threshold(value, condition["op"], condition["value"])
             for value in recent_values
         )
-        return {
+        return _attach_condition_name(condition, {
             "type": "threshold",
             "metric": metric,
             "passed": passed,
@@ -237,21 +269,57 @@ def _evaluate_condition(condition: dict, history: list[dict]) -> dict:
             "target": condition["value"],
             "op": condition["op"],
             "consecutive": consecutive,
-        }
+        })
+
+    if condition["type"] == "window_stat":
+        window = condition["window"]
+        if len(history) < window:
+            return _attach_condition_name(condition, {
+                "type": "window_stat",
+                "metric": metric,
+                "passed": False,
+                "reason": "insufficient_history",
+                "window": window,
+            })
+
+        recent_values = [float(entry.get(metric, float("nan"))) for entry in history[-window:]]
+        if not all(math.isfinite(value) for value in recent_values):
+            return _attach_condition_name(condition, {
+                "type": "window_stat",
+                "metric": metric,
+                "passed": False,
+                "reason": "non_finite_values",
+                "window": window,
+                "values": recent_values,
+            })
+
+        statistic_value = _window_statistic(recent_values, condition["statistic"])
+        passed = _compare_threshold(statistic_value, condition["op"], condition["value"])
+        return _attach_condition_name(condition, {
+            "type": "window_stat",
+            "metric": metric,
+            "passed": passed,
+            "statistic": condition["statistic"],
+            "value": statistic_value,
+            "values": recent_values,
+            "target": condition["value"],
+            "op": condition["op"],
+            "window": window,
+        })
 
     if condition["type"] == "plateau":
         window = condition["window"]
         patience = condition.get("patience", 1)
         required_history = window + patience - 1
         if len(history) < required_history:
-            return {
+            return _attach_condition_name(condition, {
                 "type": "plateau",
                 "metric": metric,
                 "passed": False,
                 "reason": "insufficient_history",
                 "window": window,
                 "patience": patience,
-            }
+            })
 
         window_checks = []
         end_start = len(history) - patience + 1
@@ -262,7 +330,7 @@ def _evaluate_condition(condition: dict, history: list[dict]) -> dict:
             window_checks.append(window_result)
 
         passed = all(check["passed"] for check in window_checks)
-        return {
+        return _attach_condition_name(condition, {
             "type": "plateau",
             "metric": metric,
             "passed": passed,
@@ -275,7 +343,7 @@ def _evaluate_condition(condition: dict, history: list[dict]) -> dict:
             "rel_improvement": window_checks[-1].get("rel_improvement"),
             "min_delta": condition["min_delta"],
             "rel_min_delta": condition.get("rel_min_delta"),
-        }
+        })
 
     raise ValueError(f"Unsupported condition type: {condition['type']}")
 
@@ -307,9 +375,7 @@ def _evaluate_stage_decision(stage: dict, history: list[dict], current_timesteps
         }
 
     checks = [_evaluate_condition(condition, history) for condition in decision["conditions"]]
-    triggered = all(check["passed"] for check in checks) if decision["logic"] == "all" else any(
-        check["passed"] for check in checks
-    )
+    triggered = _combine_condition_results(decision["logic"], checks)
     return {
         "triggered": triggered,
         "action": decision["action"],

@@ -1,0 +1,115 @@
+seed: 42
+run_name: "curriculum_auto_target_best_working_s1goal_s2bridge_s3stable"
+
+logging:
+  save_dir: "runs"
+  use_wandb: true
+  project: "arm-throw"
+  entity: "nus-me5406"
+  tags: ["curriculum-auto", "target-switch", "best-working", "no-high-min", "stage3-700k-target"]
+  notes: "Goal-based automatic curriculum: low min, high max, reverse-engineered from fixed-budget 300/300/700 practical best"
+
+curriculum:
+  eval_freq: 5000
+  n_eval_episodes: 20
+  deterministic_eval: true
+  stages:
+    - name: "stage1"
+      config: "fixed_center_stage1_auto_target_500k.yaml"
+      min_timesteps: 0
+      max_timesteps: 500000
+      decision:
+        action: "switch"
+        logic: "all"
+        conditions:
+          - type: "threshold"
+            name: "stage1_release_stable"
+            metric: "valid/release_rate"
+            op: ">="
+            value: 0.95
+            consecutive: 4
+          - type: "window_stat"
+            name: "stage1_fixed_target_distance_window"
+            metric: "valid/min_distance_to_target"
+            statistic: "max"
+            window: 5
+            op: "<="
+            value: 0.47
+          - type: "window_stat"
+            name: "stage1_final_distance_window"
+            metric: "valid/mean_final_distance"
+            statistic: "max"
+            window: 5
+            op: "<="
+            value: 0.54
+    - name: "stage2"
+      config: "narrow_random_stage2_auto_target_500k.yaml"
+      min_timesteps: 0
+      max_timesteps: 500000
+      decision:
+        action: "switch"
+        logic: "all"
+        conditions:
+          - type: "threshold"
+            name: "stage2_release_stable"
+            metric: "valid/release_rate"
+            op: ">="
+            value: 0.95
+            consecutive: 4
+          - type: "window_stat"
+            name: "stage2_success_bridge_milestone"
+            metric: "valid/success_rate"
+            statistic: "max"
+            window: 6
+            op: ">="
+            value: 0.65
+          - type: "window_stat"
+            name: "stage2_min_distance_bridge_milestone"
+            metric: "valid/min_distance_to_target"
+            statistic: "min"
+            window: 6
+            op: "<="
+            value: 0.10
+          - type: "window_stat"
+            name: "stage2_mean_final_distance_bridge_milestone"
+            metric: "valid/mean_final_distance"
+            statistic: "min"
+            window: 6
+            op: "<="
+            value: 0.35
+    - name: "stage3"
+      config: "random_full_stage3_auto_target_900k.yaml"
+      min_timesteps: 0
+      max_timesteps: 900000
+      decision:
+        action: "stop"
+        logic: "all"
+        conditions:
+          - type: "window_stat"
+            name: "stage3_tail_success_mean_target"
+            metric: "valid/success_rate"
+            statistic: "mean"
+            window: 5
+            op: ">="
+            value: 0.99
+          - type: "window_stat"
+            name: "stage3_tail_success_floor_target"
+            metric: "valid/success_rate"
+            statistic: "min"
+            window: 5
+            op: ">="
+            value: 0.95
+          - type: "window_stat"
+            name: "stage3_tail_ground_miss_target"
+            metric: "valid/ground_miss_rate"
+            statistic: "mean"
+            window: 5
+            op: "<="
+            value: 0.02
+          - type: "window_stat"
+            name: "stage3_tail_mean_final_distance_target"
+            metric: "valid/mean_final_distance"
+            statistic: "mean"
+            window: 5
+            op: "<="
+            value: 0.08

@@ -111,6 +111,7 @@ This entry point will:
 - evaluate `valid/*` metrics after each configured chunk
 - switch or stop stages based on threshold / plateau rules defined in the curriculum YAML
 - support `threshold.consecutive` for "must pass N evals in a row"
+- support `window_stat` for rolling-window target gates such as tail success mean/minimum
 - support `plateau.rel_min_delta` + `plateau.patience` for relative, seed-robust plateau detection
 - save per-stage artifacts such as `config.yaml`, `eval_metrics.jsonl`, and `stage_summary.json`
 - save run-level artifacts such as `curriculum_config.yaml`, `curriculum_events.jsonl`, and `curriculum_summary.json`
@@ -120,6 +121,17 @@ If you only want a minimal code-path validation, use the smoke config:
 ```bash
 python train_curriculum.py --config configs/curriculum_auto_smoke.yaml
 ```
+
+The current target-based working recipe is:
+
+```bash
+python train_curriculum.py --config configs/curriculum_auto_target_best_working.yaml
+```
+
+This recipe keeps `min_timesteps: 0` for all stages and uses higher `max_timesteps`
+caps only as safety bounds. The stage transitions are driven by rolling-window
+targets reverse-engineered from the best fixed-budget validation runs, rather than
+by hard-coded stage durations.
 
 The original manual chain remains unchanged:
 
@@ -360,12 +372,17 @@ Important:
 
 ## Automatic Curriculum Condition Semantics
 
-The automatic runner accepts two condition families:
+The automatic runner accepts three condition families:
 
 - `threshold`
   - fields: `metric`, `op`, `value`
   - optional: `consecutive`
   - `consecutive: N` means the threshold must pass on the most recent `N` evals
+
+- `window_stat`
+  - fields: `metric`, `statistic`, `window`, `op`, `value`
+  - `statistic` can be `mean`, `min`, `max`, or `last`
+  - use this for target-style gates such as "recent success mean >= 0.99" or "recent ground miss mean <= 0.02"
 
 - `plateau`
   - fields: `metric`, `mode`, `window`
