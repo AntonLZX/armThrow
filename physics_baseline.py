@@ -144,7 +144,7 @@ class PhysicsBaseline:
 
     def _reset_state(self):
         """Reset all per-episode mutable state."""
-        self._phase = "yaw_align"   # yaw_align → windup → swing → (retry)
+        self._phase = "yaw_align"   # yaw_align - windup - swing - (retry)
         self._phase_step = 0        # steps elapsed in current phase
         self._attempt = 0           # retry counter
         self._max_attempts = 3
@@ -169,7 +169,7 @@ class PhysicsBaseline:
         self._reset_state()
         self._env = env
 
-    # -- Per-target throw parameter computation --
+    # Per-target throw parameter computation
 
     def _compute_throw_params(self, obs):
         """
@@ -351,7 +351,6 @@ class PhysicsBaseline:
         # Exit early if the joints are already saturated at the target velocity.
         elif self._phase == "windup":
             # When joint 0 was snapped directly, hold it at zero velocity.
-            # Otherwise use a soft P-controller to maintain yaw alignment.
             j0_vel = 0.0 if self._env is not None else float(np.clip(
                 yaw_error * 4.0 - j0_ang_vel * 1.0,
                 -self.swing_scale, self.swing_scale,
@@ -385,6 +384,14 @@ class PhysicsBaseline:
             )) * 0.12
 
             ball_speed = float(np.linalg.norm(ball_vel))
+            dx = float(target[0]) - float(ball_pos[0])
+            dy = float(target[1]) - float(ball_pos[1])
+            dz_cur = float(target[2]) - float(ball_pos[2])
+            D_cur = math.sqrt(dx ** 2 + dy ** 2)
+            inner = max(dz_cur ** 2 + D_cur ** 2, 0.0)
+            A_min = (-dz_cur + math.sqrt(inner)) / 2.0
+            if D_cur > 0.05 and A_min > 1e-6:
+                self._v_min_threshold = math.sqrt(9.81 * D_cur ** 2 / (2.0 * A_min)) * 1.2
             if ball_speed >= self._v_min_threshold and \
                     self._trajectory_hits(ball_pos, ball_vel, target, radius):
                 return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)

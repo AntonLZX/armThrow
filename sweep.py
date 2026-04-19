@@ -66,6 +66,7 @@ def run_trial(base_cfg: dict):
         tags=base_cfg["logging"].get("tags", []),
         notes=base_cfg["logging"].get("notes", ""),
         sync_tensorboard=base_cfg["logging"].get("sync_tensorboard", False),
+        settings=wandb.Settings(init_timeout=300),
     )
     sweep_params = dict(wandb.config)
     cfg = _apply_sweep_params(base_cfg, sweep_params)
@@ -110,6 +111,7 @@ def run_trial(base_cfg: dict):
 
     env.close()
     eval_env.close()
+    wandb.finish()
 
 
 def main():
