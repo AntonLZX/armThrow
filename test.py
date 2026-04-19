@@ -2,9 +2,9 @@
 test.py — Validation / testing script for any ArmThrow model.
 
 Usage:
-    python test.py --model ppo_arm_throw.zip
+    python test.py --model model.zip
     python test.py --model runs/<run>/model.zip --config runs/<run>/config.yaml
-    python test.py --model ppo_arm_throw.zip --render --n-episodes 20
+    python test.py --model model.zip --render --n-episodes 20
 
 The script runs four test suites and prints a structured report:
 
@@ -528,8 +528,8 @@ def main():
         description="Validate any ArmThrow model (PPO, A2C, SAC, TD3, DDPG, BC, GAIL, Physics)."
     )
     parser.add_argument(
-        "--model", type=str, default="ppo_arm_throw.zip",
-        help="Path to model.zip (default: ppo_arm_throw.zip)"
+        "--model", type=str, default="model.zip",
+        help="Path to model.zip (default: model.zip)"
     )
     parser.add_argument(
         "--config", type=str, default=None,

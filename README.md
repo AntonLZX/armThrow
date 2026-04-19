@@ -136,16 +136,16 @@ Two scripts are provided for evaluating a trained model after training is comple
 
 ```bash
 # Minimal usage — uses built-in defaults matching the final curriculum stage
-python test.py --model ppo_arm_throw.zip
+python test.py --model model.zip
 
 # With the config that was used during training (recommended)
 python test.py --model runs/<run>/model.zip --config runs/<run>/config.yaml
 
 # More episodes for stable statistics
-python test.py --model ppo_arm_throw.zip --n-episodes 100
+python test.py --model model.zip --n-episodes 100
 
 # With PyBullet GUI (slow, useful for visual debugging)
-python test.py --model ppo_arm_throw.zip --render
+python test.py --model model.zip --render
 ```
 
 **Suite 1 — Core Performance** runs `--n-episodes` episodes against the random target range and
