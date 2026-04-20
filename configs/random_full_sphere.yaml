@@ -10,7 +10,16 @@ env:
   motor_force_limit: 50.0
   joint_velocity_limit: 10.0
   target_radius: 0.1
-  release_success_bonus: 0.0
+  release_success_bonus: 0
+  pre_release_action_penalty: 0.0001
+  pre_release_const_penalty: 0.001
+  progress_shaping_function: exponential
+  progress_shaping_param: 4.0
+  progress_shaping_scale: 1.0
+  direction_reward_scale: 100   # Direction alignment bonus 
+  direction_reward_param: 1.0   # Angle sensitivity for direction reward
+  best_distance_reward_param: 10.0
+  best_distance_reward_scale: 10.0
   reward_mode: "distance_progress"
   observation_mode: "arm_target_release"
 
@@ -20,16 +29,16 @@ env:
     random:
       sampling_mode: "sphere_with_cylinder_exclusion"
       sphere:
-        center: [2.0, 0.0, 0.5]
-        radius: 0.2
+        center: [0.0, 0.0, 0.0]
+        radius: 2.2
       cylinder_exclusion:
-        center: [2.0, 0.0, 0.5]
-        radius: 0.05
-        height: 0.3
+        center: [0.0, 0.0, 0.0]
+        radius: 1.5
+        height: 3.0
 
 algo:
   name: "PPO"
-  total_timesteps: 300000
+  total_timesteps: 9000000
   learning_rate: 0.0003
   n_steps: 2048
   batch_size: 64
@@ -46,7 +55,7 @@ logging:
   use_wandb: true
   project: "arm-throw"
   entity: "nus-me5406"
-  tags: ["ppo", "pybullet", "curriculum", "random-full", "stage3", "300k"]
-  notes: "Curriculum stage 3: full random target"
+  tags: ["ppo", "pybullet", "curriculum", "random-full-sphere", "stage4", "300k"]
+  notes: "Curriculum stage 4: full random target in sphere"
   sync_tensorboard: false
   save_model: true

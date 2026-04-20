@@ -30,6 +30,10 @@ class ArmThrowEnv(gym.Env):
         self.progress_shaping_scale = float(cfg.get("progress_shaping_scale", 2.0))
         self.progress_shaping_function = cfg.get("progress_shaping_function", "exponential")
         self.progress_shaping_param = float(cfg.get("progress_shaping_param", 1.5))
+        self.direction_reward_param = float(cfg.get("direction_reward_param", 1.0))  # Angle sensitivity
+        self.direction_reward_scale = float(cfg.get("direction_reward_scale", 50.0))  # Baseline scale
+        self.best_distance_reward_param = float(cfg.get("best_distance_reward_param", 10.0))
+        self.best_distance_reward_scale = float(cfg.get("best_distance_reward_scale", 1.0))
         
         if self.progress_shaping_function not in {"exponential", "tanh", "polynomial_3", "polynomial_5", "inverse_square"}:
             raise ValueError(
@@ -69,15 +73,17 @@ class ArmThrowEnv(gym.Env):
         self.joint_velocities = np.zeros(self.n_joints, dtype=np.float32)
         self.prev_dist_to_target = None
         self.best_dist_to_target = None
+        self.initial_dist_to_target = None
         self.release_step = None
         self.release_distance_to_target = None
         self.release_ball_speed = None
         self.termination_type = None
         self.pre_release_penalty_sum = 0.0
         self.shaping_reward_sum = 0.0
+        self.direction_reward_sum = 0.0
         self.release_bonus_sum = 0.0
         self.success_bonus_sum = 0.0
-        self.failure_penalty_sum = 0.0
+        self.best_distance_reward_sum = 0.0
         self.action_norm_sum = 0.0
         self.cumulative_abs_joint_velocity = 0.0
         self.max_abs_joint_velocity = 0.0
@@ -157,17 +163,18 @@ class ArmThrowEnv(gym.Env):
             # Scale to sphere
             point = sphere_center + u * sphere_radius
             
-            # Check if point is in cylinder exclusion zone
+            # Check if point is in cylinder exclusion zone and above ground
             rel_pos = point - cylinder_center
             horizontal_dist = np.sqrt(rel_pos[0]**2 + rel_pos[1]**2)
-            vertical_dist = np.abs(rel_pos[2])
             
-            # If not in exclusion cylinder, return this point
-            if horizontal_dist > cylinder_radius or vertical_dist > cylinder_height / 2.0:
+            # If not in exclusion cylinder and above ground level (z > 0.05), return this point
+            if horizontal_dist > cylinder_radius and point[2] > 0.05:
                 return point.astype(np.float32)
         
         # Fallback if max attempts exceeded (shouldn't happen with reasonable geometry)
-        return sphere_center.astype(np.float32)
+        fallback = sphere_center.astype(np.float32)
+        fallback[2] = max(fallback[2], 0.05)  # Ensure above ground level
+        return fallback
 
 
     def reset(self, seed=None, options=None):
@@ -227,15 +234,17 @@ class ArmThrowEnv(gym.Env):
         initial_dist = float(np.linalg.norm(np.array(ball_pos, dtype=np.float32) - self.target_pos))
         self.prev_dist_to_target = initial_dist
         self.best_dist_to_target = initial_dist
+        self.initial_dist_to_target = initial_dist
         self.release_step = None
         self.release_distance_to_target = None
         self.release_ball_speed = None
         self.termination_type = None
         self.pre_release_penalty_sum = 0.0
         self.shaping_reward_sum = 0.0
+        self.direction_reward_sum = 0.0
         self.release_bonus_sum = 0.0
         self.success_bonus_sum = 0.0
-        self.failure_penalty_sum = 0.0
+        self.best_distance_reward_sum = 0.0
         self.action_norm_sum = 0.0
         self.cumulative_abs_joint_velocity = 0.0
         self.max_abs_joint_velocity = 0.0
@@ -354,7 +363,7 @@ class ArmThrowEnv(gym.Env):
         shaping_component = 0.0
         release_bonus_component = 0.0
         success_bonus_component = 0.0
-        failure_penalty_component = 0.0
+        best_distance_reward_component = 0.0
         action_norm = float(np.linalg.norm(action[:3]))
 
         self.joint_velocities += action[:3] * self.accel_scale * self.dt
@@ -396,7 +405,7 @@ class ArmThrowEnv(gym.Env):
             self.cid = None
             self.released = True
             released_this_step = True
-
+        
         p.stepSimulation(physicsClientId=self.client)
         self.step_count += 1
 
@@ -417,6 +426,7 @@ class ArmThrowEnv(gym.Env):
         phi_prev = self._compute_shaping_potential(prev_dist_to_target)
 
         reward = 0.0
+        direction_reward_component = 0.0
 
         if self.reward_mode == "absolute_distance":
             if not self.released:
@@ -428,7 +438,35 @@ class ArmThrowEnv(gym.Env):
                 pre_release_penalty -= self.pre_release_action_penalty * float(np.sum(np.square(action[:3])))
                 pre_release_penalty -= self.pre_release_const_penalty
             elif ball_pos[2] >= 0.05:
-                shaping_component += self.progress_shaping_scale * (phi_t - phi_prev)
+                if phi_t - phi_prev > 0:
+                    shaping_component += self.progress_shaping_scale * (phi_t - phi_prev)
+                else:
+                    shaping_component += self.progress_shaping_scale / 100 * (phi_t - phi_prev)
+                shaping_component = 0.0
+        
+        # Direction alignment reward: only at the moment of release (one-time bonus)
+        if released_this_step and self.direction_reward_scale > 0:
+            ball_to_target = self.target_pos - ball_pos
+            ball_to_target_xy = ball_to_target[:2]  # xy component
+            ball_vel_xy = ball_vel[:2]  # xy component of velocity
+            
+            # Normalize both vectors to get direction cosine similarity
+            target_dir_norm = np.linalg.norm(ball_to_target_xy)
+            vel_dir_norm = np.linalg.norm(ball_vel_xy)
+            
+            if target_dir_norm > 1e-6 and vel_dir_norm > 1e-6:
+                target_dir_normalized = ball_to_target_xy / target_dir_norm
+                vel_dir_normalized = ball_vel_xy / vel_dir_norm
+                # Dot product: ranges from -1 (opposite direction) to 1 (same direction)
+                direction_alignment = float(np.dot(target_dir_normalized, vel_dir_normalized))
+                # Clamp to [-1, 1] to avoid numerical issues with arccos
+                direction_alignment = np.clip(direction_alignment, -1.0, 1.0)
+                # Calculate angle between velocity and target direction (0 to π)
+                angle = float(np.arccos(direction_alignment))
+                # Angle-based reward: 1 / (param * angle + 1/scale)
+                # angle=0 (perfect): reward = scale
+                # angle=π (opposite): reward = 1/(param*π + 1/scale)
+                direction_reward_component = 1.0 / (self.direction_reward_param * angle + 1.0 / self.direction_reward_scale)
 
         if released_this_step:
             release_bonus_component += self.release_success_bonus
@@ -443,7 +481,7 @@ class ArmThrowEnv(gym.Env):
         if self.released and dist_to_target < self.target_radius and ball_pos[2] >= 0.05:
             terminated = True
             success = True
-            success_bonus_component += 10.0
+            success_bonus_component += 0.0
             self.termination_type = "success"
             self._highlight_success()
 
@@ -452,22 +490,28 @@ class ArmThrowEnv(gym.Env):
             if not success and not terminated:
                 self.termination_type = "timeout_after_release" if self.released else "timeout_no_release"
 
-        if self.reward_mode == "distance_progress" and (terminated or truncated) and not success:
-            failure_penalty_component -= 0.5 * float(dist_to_target)
-
-        reward = (
-            pre_release_penalty
-            + shaping_component
-            + release_bonus_component
-            + success_bonus_component
-            + failure_penalty_component
-        )
-
         self.prev_dist_to_target = float(dist_to_target)
         if self.best_dist_to_target is None:
             self.best_dist_to_target = float(dist_to_target)
         else:
             self.best_dist_to_target = min(float(self.best_dist_to_target), float(dist_to_target))
+
+        if self.reward_mode == "distance_progress" and (terminated or truncated):
+            best_dist = float(self.best_dist_to_target)
+            best_distance_reward_component += 1.0 / (
+                self.best_distance_reward_param * best_dist + 1.0 / self.best_distance_reward_scale
+            )
+
+            
+
+        reward = (
+            pre_release_penalty
+            + shaping_component
+            + direction_reward_component
+            + release_bonus_component
+            + success_bonus_component
+            + best_distance_reward_component
+        )
 
         if released_this_step:
             self.release_step = self.step_count
@@ -476,9 +520,10 @@ class ArmThrowEnv(gym.Env):
 
         self.pre_release_penalty_sum += pre_release_penalty
         self.shaping_reward_sum += shaping_component
+        self.direction_reward_sum += direction_reward_component
         self.release_bonus_sum += release_bonus_component
         self.success_bonus_sum += success_bonus_component
-        self.failure_penalty_sum += failure_penalty_component
+        self.best_distance_reward_sum += best_distance_reward_component
 
         info = {
             "distance_to_target": float(dist_to_target),
@@ -504,9 +549,10 @@ class ArmThrowEnv(gym.Env):
             "termination_timeout_after_release": float(self.termination_type == "timeout_after_release"),
             "reward_pre_release_penalty": float(self.pre_release_penalty_sum),
             "reward_shaping_component": float(self.shaping_reward_sum),
+            "reward_direction_component": float(self.direction_reward_sum),
             "reward_release_bonus_component": float(self.release_bonus_sum),
             "reward_success_bonus_component": float(self.success_bonus_sum),
-            "reward_failure_penalty_component": float(self.failure_penalty_sum),
+            "reward_best_distance_component": float(self.best_distance_reward_sum),
             "max_abs_joint_velocity": float(self.max_abs_joint_velocity),
             "mean_abs_joint_velocity": float(self.cumulative_abs_joint_velocity / max(self.step_count, 1)),
             "mean_action_norm": float(self.action_norm_sum / max(self.step_count, 1)),

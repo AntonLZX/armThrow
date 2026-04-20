@@ -510,7 +510,7 @@ def evaluate(baseline, env_cfg, n_episodes, seed):
         shapings.append(last_info.get("reward_shaping_component", np.nan))
         release_bonuses.append(last_info.get("reward_release_bonus_component", np.nan))
         success_bonuses.append(last_info.get("reward_success_bonus_component", np.nan))
-        failure_penalties.append(last_info.get("reward_failure_penalty_component", np.nan))
+        failure_penalties.append(last_info.get("reward_best_distance_component", np.nan))
         max_joint_vels.append(last_info.get("max_abs_joint_velocity", np.nan))
         mean_joint_vels.append(last_info.get("mean_abs_joint_velocity", np.nan))
         action_norms.append(last_info.get("mean_action_norm", np.nan))
@@ -537,7 +537,7 @@ def evaluate(baseline, env_cfg, n_episodes, seed):
         "reward/shaping":                _finite_mean(shapings),
         "reward/release_bonus":          _finite_mean(release_bonuses),
         "reward/success_bonus":          _finite_mean(success_bonuses),
-        "reward/failure_penalty":        _finite_mean(failure_penalties),
+        "reward/best_distance_reward":   _finite_mean(failure_penalties),
         "control/max_abs_joint_velocity":  _finite_mean(max_joint_vels),
         "control/mean_abs_joint_velocity": _finite_mean(mean_joint_vels),
         "control/mean_action_norm":        _finite_mean(action_norms),

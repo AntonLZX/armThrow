@@ -20,6 +20,8 @@ env:
   progress_shaping_scale: 2.0
   progress_shaping_function: "exponential"
   progress_shaping_param: 1.5
+  direction_reward_scale: 50.0  # Scale in angle-based reward formula: 1/(param*angle + 1/scale)
+  direction_reward_param: 1.0   # Angle sensitivity (higher = steeper falloff)
 
   target:
     mode: "random"   # fixed or random

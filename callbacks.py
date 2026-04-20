@@ -209,6 +209,13 @@ class WandbEpisodeCallback(BaseCallback):
                     "episode/final_distance": float(info.get("final_distance_to_target", np.nan)),
                     "episode/release_step": float(info.get("release_step", np.nan)),
                     "episode/release_ball_speed": float(info.get("release_ball_speed", np.nan)),
+                    # Reward components
+                    "reward/pre_release_penalty": float(info.get("reward_pre_release_penalty", 0.0)),
+                    "reward/shaping_component": float(info.get("reward_shaping_component", 0.0)),
+                    "reward/direction_component": float(info.get("reward_direction_component", 0.0)),
+                    "reward/release_bonus": float(info.get("reward_release_bonus_component", 0.0)),
+                    "reward/success_bonus": float(info.get("reward_success_bonus_component", 0.0)),
+                    "reward/best_distance_reward": float(info.get("reward_best_distance_component", 0.0)),
                     "global_timestep": int(self.num_timesteps),
                 }
                 wandb.log(payload, step=self.num_timesteps)
