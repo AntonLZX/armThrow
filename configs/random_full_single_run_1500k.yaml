@@ -1,5 +1,5 @@
 seed: 42
-run_name: "sweep_1500k"
+run_name: "BEST_single_1500k"
 
 env:
   arm_urdf: "arm.urdf"
@@ -24,15 +24,15 @@ env:
 
 algo:
   name: "PPO"
-  total_timesteps: 1500000
-  learning_rate: 0.0003
+  total_timesteps: 1000000
+  learning_rate: 0.0010610601009551964
   n_steps: 2048
-  batch_size: 64
-  n_epochs: 10
+  batch_size: 512
+  n_epochs: 20
   gamma: 0.99
   gae_lambda: 0.95
-  clip_range: 0.2
-  ent_coef: 0.01
+  clip_range: 0.1
+  ent_coef: 0.0005307580884686236
 
 logging:
   name: "auto"
@@ -41,7 +41,7 @@ logging:
   use_wandb: true
   project: "arm-throw"
   entity: "nus-me5406"
-  tags: ["sweep", "ppo", "pybullet", "random-full", "1500k-cap"]
-  notes: "Test single training run with 1500k steps"
+  tags: [ "ppo", "pybullet", "random-full", "1500k-cap"]
+  notes: "Best Hyperparams single training run with 1500k steps"
   sync_tensorboard: false
   save_model: true
