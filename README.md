@@ -5,7 +5,15 @@ PyBullet + PPO prototype for the ME5406 Project 2 throwing task.
 The current codebase trains a 3-DOF arm to throw a ball at a 3D target. The target may be on the ground or in the air.
 
 ## Model Validation
-model.zip files for our three final results, physcs baseline, best single run, and curriculum auto schedule, can be found in `models/<model-name>/models.zip` along with `.gif` of successes and, where success rate is not 100%, failures. The configs used to train them are found in `configs`.
+Final artifacts for our three reported result families are stored under `models/`:
+
+- `models/physics_baseline/`
+- `models/best_single_run/`
+- `models/curriculum_auto/`
+
+Each directory contains the exported `model.zip`. Where available, we also include
+success / failure GIFs, final-frame PNGs, and short text summaries. The configs used
+to train the models are stored under `configs/`.
 
 To validate these models using our test script, run
 ```bash
@@ -98,45 +106,68 @@ The resolved config actually used for a run is saved to `runs/<run>/config.yaml`
 
 ### 3. Automatic curriculum entry
 
-The manual 3-stage chain is still available, but the repo now also provides a
-dedicated automatic stage-switch runner:
+The repo also provides a dedicated automatic stage-switch runner:
 
 ```bash
-python train_curriculum.py --config configs/curriculum_auto_default.yaml
+python train_curriculum.py --config configs/curriculum_auto/curriculum_auto_target_best_working.yaml
 ```
 
 This entry point will:
 
 - run `stage1 -> stage2 -> stage3` sequentially
 - evaluate `valid/*` metrics after each configured chunk
-- switch or stop stages based on threshold / plateau rules defined in the curriculum YAML
+- switch or stop stages based on rules defined in the curriculum YAML
 - support `threshold.consecutive` for "must pass N evals in a row"
-- support `window_stat` for rolling-window target gates such as tail success mean/minimum
-- support `plateau.rel_min_delta` + `plateau.patience` for relative, seed-robust plateau detection
+- support `window_stat` for rolling-window readiness / stop targets
 - save per-stage artifacts such as `config.yaml`, `eval_metrics.jsonl`, and `stage_summary.json`
 - save run-level artifacts such as `curriculum_config.yaml`, `curriculum_events.jsonl`, and `curriculum_summary.json`
 
-If you only want a minimal code-path validation, use the smoke config:
+The final reported automatic curriculum recipe in this submission branch is:
 
 ```bash
-python train_curriculum.py --config configs/curriculum_auto_smoke.yaml
+python train_curriculum.py --config configs/curriculum_auto/curriculum_auto_target_best_working.yaml
 ```
 
-The current target-based working recipe is:
+It uses the three stage configs:
 
-```bash
-python train_curriculum.py --config configs/curriculum_auto_target_best_working.yaml
-```
+- `configs/curriculum_auto/fixed_center_stage1_auto_target_500k.yaml`
+- `configs/curriculum_auto/narrow_random_stage2_auto_target_500k.yaml`
+- `configs/curriculum_auto/random_full_stage3_auto_target_900k.yaml`
 
-This recipe keeps `min_timesteps: 0` for all stages and uses higher `max_timesteps`
-caps only as safety bounds. The stage transitions are driven by rolling-window
-targets reverse-engineered from the best fixed-budget validation runs, rather than
-by hard-coded stage durations.
+The automatic logic keeps `min_timesteps: 0` for all three stages and uses
+`max_timesteps` only as a safety cap. Stage switching is triggered by rolling-window
+targets reverse-engineered from the strongest fixed-budget runs:
 
-The original manual chain remains unchanged:
+- `stage1 -> stage2`
+  - `valid/release_rate >= 0.95` for 4 consecutive evals
+  - recent-5 `valid/min_distance_to_target` max `<= 0.47`
+  - recent-5 `valid/mean_final_distance` max `<= 0.54`
+- `stage2 -> stage3`
+  - `valid/release_rate >= 0.95` for 4 consecutive evals
+  - recent-6 `valid/success_rate` max `>= 0.65`
+  - recent-6 `valid/min_distance_to_target` min `<= 0.10`
+  - recent-6 `valid/mean_final_distance` min `<= 0.35`
+- `stage3 stop`
+  - recent-5 `valid/success_rate` mean `>= 0.99`
+  - recent-5 `valid/success_rate` min `>= 0.95`
+  - recent-5 `valid/ground_miss_rate` mean `<= 0.02`
+  - recent-5 `valid/mean_final_distance` mean `<= 0.08`
 
-- `python train.py --config ...`
-- `python train.py --config ... --load-model ...`
+In the validated best automatic run (`seed=42`), these rules triggered at:
+
+- stage1 switch: `301056` timesteps
+- stage2 switch: `294912` timesteps
+- stage3 stop: `466944` timesteps
+
+The corresponding stage-3 tail metrics were:
+
+- tail-5 success mean: `0.99`
+- tail-5 success minimum: `0.95`
+- tail-5 ground-miss mean: `0.01`
+- tail-5 mean-final-distance mean: `0.0722`
+
+The original manual chain is still available via `train.py` plus `--load-model`
+if you want to replay the stages explicitly.
 
 ## Evaluation
 
@@ -247,7 +278,7 @@ The script exits with code `0` if a success was found, `1` otherwise.
 ### Physics Baseline
 
 ```bash
-python train.py --config configs/physics_baselime.yaml
+python train.py --config configs/physics_baseline.yaml
 ```
 
 ### Best Single Run
@@ -258,7 +289,13 @@ python train.py --config configs/best_single_run/random_full_single_run_1500k.ya
 
 ### Automatic Curriculum
 
-TO DO
+```bash
+python train_curriculum.py --config configs/curriculum_auto/curriculum_auto_target_best_working.yaml
+```
+
+This is the final target-based automatic curriculum recipe used in our report-facing
+results. It keeps all three stages on low `min_timesteps` and lets the curriculum
+advance only when the rolling-window readiness targets are met.
 
 
 

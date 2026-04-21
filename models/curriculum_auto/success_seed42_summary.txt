@@ -1,0 +1,13 @@
+label=success
+seed=42
+steps=39
+total_reward=11.6682
+success=1.0
+final_distance_to_target=0.06970135122537613
+min_distance_to_target=0.06970135122537613
+release_step=21.0
+release_ball_speed=6.439866542816162
+target=(2.1095824241638184, -0.02444862388074398, 0.5717195868492126)
+target_radius=0.1
+gif=/Users/jinjunyu/金峻宇/NUS/Code/1-18ME5406/Project 2/code/armThrow_code_to_submit/models/curriculum_auto/success_seed42.gif
+png=/Users/jinjunyu/金峻宇/NUS/Code/1-18ME5406/Project 2/code/armThrow_code_to_submit/models/curriculum_auto/success_seed42_final.png

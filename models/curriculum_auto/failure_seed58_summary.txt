@@ -1,0 +1,13 @@
+label=failure
+seed=58
+steps=35
+total_reward=0.5982
+success=0.0
+final_distance_to_target=0.5509119033813477
+min_distance_to_target=0.12725195288658142
+release_step=11.0
+release_ball_speed=5.328980922698975
+target=(1.9236047267913818, 0.1519334465265274, 0.4486182928085327)
+target_radius=0.1
+gif=/Users/jinjunyu/金峻宇/NUS/Code/1-18ME5406/Project 2/code/armThrow_code_to_submit/models/curriculum_auto/failure_seed58.gif
+png=/Users/jinjunyu/金峻宇/NUS/Code/1-18ME5406/Project 2/code/armThrow_code_to_submit/models/curriculum_auto/failure_seed58_final.png
