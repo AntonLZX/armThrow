@@ -1,0 +1,13 @@
+label=success
+seed=42
+steps=74
+total_reward=12.7457
+success=1.0
+final_distance_to_target=0.031259503215551376
+min_distance_to_target=0.031259503215551376
+release_step=59.0
+release_ball_speed=7.896945953369141
+target=(2.1095824241638184, -0.02444862388074398, 0.5717195868492126)
+target_radius=0.1
+gif=/root/emma-code/me5406/armThrow/tmp/physics/success_seed42.gif
+png=/root/emma-code/me5406/armThrow/tmp/physics/success_seed42_final.png

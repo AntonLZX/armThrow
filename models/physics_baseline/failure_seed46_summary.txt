@@ -1,0 +1,13 @@
+label=failure
+seed=46
+steps=240
+total_reward=-1.1046
+success=0.0
+final_distance_to_target=1.6476258039474487
+min_distance_to_target=1.4175771474838257
+release_step=nan
+release_ball_speed=nan
+target=(2.1622416973114014, -0.1691092848777771, 0.45451393723487854)
+target_radius=0.1
+gif=/root/emma-code/me5406/armThrow/tmp/physics/failure_seed46.gif
+png=/root/emma-code/me5406/armThrow/tmp/physics/failure_seed46_final.png

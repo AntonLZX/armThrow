@@ -2,21 +2,26 @@
 
 PyBullet + PPO prototype for the ME5406 Project 2 throwing task.
 
-The current codebase trains a 3-DOF arm to throw a ball at a 3D target. The target may be on the ground or in the air. The main entry point is [`train.py`](train.py).
+The current codebase trains a 3-DOF arm to throw a ball at a 3D target. The target may be on the ground or in the air.
 
-## Current Status
+## Model Validation
+model.zip files for our three final results, physcs baseline, best single run, and curriculum auto schedule, can be found in `models/<model-name>/models.zip` along with `.gif` of successes and, where success rate is not 100%, failures. The configs used to train them are found in `configs`.
 
-- Main CLI entry point lives in [`train.py`](train.py).
-- Core implementation is now split across dedicated modules:
-  - [`env.py`](env.py)
-  - [`callbacks.py`](callbacks.py)
-  - [`config.py`](config.py)
-- The target is now visualized directly in the environment and recorded GIFs.
-- The current recommended setup uses:
-  - `reward_mode: distance_progress`
-  - `observation_mode: arm_target_release`
-  - split control parameters: `accel_scale`, `motor_force_limit`, `joint_velocity_limit`
-  - curriculum training: `fixed_center -> narrow_random -> random_full`
+To validate these models using our test script, run
+```bash
+python test.py
+        --model models/best_single_run/model.zip 
+        --config configs/best_single_run/random_full_single_run_1500k.yaml
+```
+
+To re-generate gifs from the final model, run
+```bash
+python capture_success.py 
+        --config configs/best_single_run/random_full_single_run_1500k.yaml
+        --model models/best_single_run/model.zip
+        --output-dir tmp/success_capture
+```
+
 
 ## Repository Layout
 
@@ -27,9 +32,8 @@ The current codebase trains a 3-DOF arm to throw a ball at a 3D target. The targ
 - [`capture_success.py`](capture_success.py): local utility to search for a successful rollout and save a GIF/PNG proof
 - [`arm.urdf`](arm.urdf): 3-DOF arm model
 - [`visualize_arm.py`](visualize_arm.py): manual visualization/debug script
-- [`configs/base.yaml`](configs/base.yaml): default interactive training config
 - [`configs/`](configs): frozen experiment configs and curriculum stages
-- `runs/`: local training outputs, saved models, W&B local files; new additions should stay local
+
 
 ## Environment Setup
 
@@ -66,16 +70,12 @@ If you do not want W&B, set `logging.use_wandb: false` in the config you run.
 This is the simplest way to start training:
 
 ```bash
-python train.py --config configs/base.yaml
+python train.py --config configs/best_single_run/random_full_single_run_1500k.yaml
 ```
 
-Notes:
-- `base.yaml` keeps `render: true` by default, so this opens the PyBullet GUI.
-- The target marker is rendered directly in the scene. On success, it highlights green.
-- For long runs, use:
-
+Render is set to false, but you can turn it on using
 ```bash
-python train.py --config configs/base.yaml --no-render
+python train.py --config configs/best_single_run/random_full_single_run_1500k.yaml --render
 ```
 
 ### 2. Load a pretrained stage
@@ -240,135 +240,28 @@ For each captured episode the script writes three files:
 
 The script exits with code `0` if a success was found, `1` otherwise.
 
-## Current Default Training Recipe
 
-The current default recipe is the most robust curriculum chain tested so far:
 
-1. [`configs/fixed_center_stage1_300k.yaml`](configs/fixed_center_stage1_300k.yaml)
-2. [`configs/narrow_random_stage2_300k.yaml`](configs/narrow_random_stage2_300k.yaml)
-3. [`configs/random_full_stage3_300k.yaml`](configs/random_full_stage3_300k.yaml)
+## Training Recipes
 
-Run them in order:
+### Physics Baseline
 
 ```bash
-python train.py --config configs/fixed_center_stage1_300k.yaml
-python train.py --config configs/narrow_random_stage2_300k.yaml --load-model runs/<stage1_run>/model.zip
-python train.py --config configs/random_full_stage3_300k.yaml --load-model runs/<stage2_run>/model.zip
+python train.py --config configs/physics_baselime.yaml
 ```
 
-Interpretation:
-- `stage1` learns basic arm swing + release behavior on a fixed target
-- `stage2` teaches the policy to use `target_pos` under a narrow random target range
-- `stage3` transfers the policy to the full random target range
+### Best Single Run
+```bash
+python train.py --config configs/best_single_run/random_full_single_run_1500k.yaml
+```
 
-Only the final model from `stage3` should be treated as the final model.
 
-Why this is the default:
-- it is the strongest **multi-seed validated** schedule tested so far
-- it is more robust than the more aggressive `150k / 250k / 400k` branch on seeds `7`, `42`, and `123`
+### Automatic Curriculum
 
-## Current Best Single-Seed Candidate
+TO DO
 
-The strongest single-seed fixed-budget chain tested so far is:
 
-1. [`configs/fixed_center_stage1_150k.yaml`](configs/fixed_center_stage1_150k.yaml)
-2. [`configs/narrow_random_stage2_250k_from_stage1_150k.yaml`](configs/narrow_random_stage2_250k_from_stage1_150k.yaml)
-3. [`configs/random_full_stage3_400k_after_stage2_250k.yaml`](configs/random_full_stage3_400k_after_stage2_250k.yaml)
 
-This chain produced the best single-seed result, but it is not the default because it showed high variance in multi-seed revalidation.
-
-## Current Assessment
-
-The 3-stage curriculum is currently the best validated structure for this repository.
-
-- The current default fixed-budget schedule is `300k / 300k / 300k`.
-- The strongest single-seed candidate is `150k / 250k / 400k`.
-- These should be treated differently:
-  - `300k / 300k / 300k`: default training recipe
-  - `150k / 250k / 400k`: experimental aggressive candidate
-
-Current validation basis:
-
-- `150k / 250k / 400k`
-  - seed `42`: `success_rate = 0.80`, `mean_final_distance = 0.223`
-  - seed `7`: `success_rate = 0.05`, `mean_final_distance = 0.544`
-  - seed `123`: `success_rate = 0.45`, `mean_final_distance = 0.603`
-- `300k / 300k / 300k`
-  - seed `42`: `success_rate = 0.70`, `mean_final_distance = 0.290`
-  - seed `7`: `success_rate = 0.20`, `mean_final_distance = 0.596`
-  - seed `123`: `success_rate = 0.70`, `mean_final_distance = 0.278`
-
-Aggregate interpretation:
-
-- `150k / 250k / 400k`
-  - mean `success_rate ≈ 0.43`
-  - mean `mean_final_distance ≈ 0.457`
-- `300k / 300k / 300k`
-  - mean `success_rate ≈ 0.53`
-  - mean `mean_final_distance ≈ 0.388`
-
-So the aggressive schedule wins on the best seed, but loses on robustness.
-
-## Empirical Findings Behind the Current Schedule
-
-These findings are useful for collaborators because they explain why the current schedule looks the way it does.
-
-- The current best single-seed chain (`150k / 250k / 400k`) did not come from intuition alone. It came from direct schedule comparisons.
-- Stage 2 is **not** monotonic in practice. In other words, "train Stage 2 longer" is not automatically better.
-- Under the `stage1 = 150k` setup:
-  - `stage2 = 200k` was too short and led to weak transfer into Stage 3
-  - `stage2 = 250k` performed better
-  - `stage2 = 300k` was worse than `250k`
-- This means the narrow-random phase appears to have a useful window rather than a simple "the longer the better" trend.
-
-Single-seed evidence for the Stage 2 comparison:
-
-- `150k / 200k / 400k`
-  - Stage 2: `valid/success_rate = 0.20`
-  - Final Stage 3: `valid/success_rate = 0.65`
-  - Final Stage 3: `valid/mean_final_distance = 0.366`
-
-- `150k / 250k / 400k`
-  - Stage 2: `valid/success_rate = 0.45`
-  - Final Stage 3: `valid/success_rate = 0.80`
-  - Final Stage 3: `valid/mean_final_distance = 0.223`
-
-- `150k / 300k / 400k` was not promoted because the Stage 2 branch itself had already degraded relative to `250k`
-
-Practical interpretation:
-
-- Stage 2 should be treated as a transition phase with a useful operating window
-- The goal is to switch once the policy has clearly started solving the narrow-random task, not to maximize Stage 2 duration
-- This is why the stage-switch guidance focuses on the **first stable useful window** instead of a fixed "longer is better" assumption
-- However, the `150k / 250k / 400k` branch showed too much seed sensitivity to replace the default outright
-
-## Stage Switching Guidance
-
-The curriculum is not meant to be blindly hard-coded forever. The switching guidance below is an **experimental decision rule**. In this private snapshot, `train_curriculum.py` already implements a configurable first-pass automatic runner via the curriculum YAMLs; the guidance below is the higher-level rationale for how those rules should be chosen and tuned.
-
-- Stage 1 -> Stage 2
-  - `valid/release_rate` is high for several evals in a row
-  - `valid/timeout_no_release_rate` is low for several evals in a row
-  - `valid/mean_final_distance` has entered a **relative plateau**
-  - nonzero success is not required yet
-
-- Stage 2 -> Stage 3
-  - do not assume "longer is always better"
-  - switch when Stage 2 first reaches a stable useful window:
-    - `valid/min_distance_to_target` is already close to `target_radius`
-    - `valid/min_distance_to_target` has entered a relative plateau
-    - `valid/mean_final_distance` has also entered a relative plateau
-
-- Stop Stage 3
-  - `valid/min_distance_to_target` is no longer materially improving
-  - `valid/mean_final_distance` is no longer materially improving
-  - multiple eval windows are stable via plateau patience
-
-Important:
-- Stage 2 is not monotonic in practice.
-- A tested `150k / 200k / 400k` schedule underperformed because Stage 2 was cut too early.
-- A tested `150k / 250k / 400k` schedule is the best single-seed branch, but it is not robust enough to replace the default yet.
-- Until a better schedule wins on multiple seeds, use `300k / 300k / 300k` as the default and treat more aggressive schedules as experimental candidates.
 
 ## Automatic Curriculum Condition Semantics
 
@@ -459,20 +352,3 @@ The most useful metrics to monitor are:
 - `valid/timeout_after_release_rate`
 
 These are more informative than reward alone.
-
-## Reproducing Recent Ablations
-
-Useful frozen configs in [`configs/`](configs):
-
-- Reward comparisons:
-  - [`reward_compare_before_300k.yaml`](configs/reward_compare_before_300k.yaml)
-  - [`reward_compare_after_300k.yaml`](configs/reward_compare_after_300k.yaml)
-- Observation/control ablations:
-  - [`random_full_pre679_compat_300k.yaml`](configs/random_full_pre679_compat_300k.yaml)
-  - [`random_full_post679_300k.yaml`](configs/random_full_post679_300k.yaml)
-  - [`random_full_only7_ablation_300k.yaml`](configs/random_full_only7_ablation_300k.yaml)
-  - [`random_full_obsv2_300k.yaml`](configs/random_full_obsv2_300k.yaml)
-
-## Known Limitations
-
-- Training logic has been split into modules, but the repository is still small and intentionally lightweight rather than fully packaged.

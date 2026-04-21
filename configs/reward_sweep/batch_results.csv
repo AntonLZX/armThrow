@@ -1,6 +1,0 @@
-trial_index,pre_release_action_penalty,pre_release_const_penalty,progress_shaping_function,run_dir,success_rate,mean_reward,best_distance,total_timesteps,trial_time_sec
-0,0.0001,0.001,exponential,runs/reward_sweep_000_pre_releas=0.0001_pre_releas=0.001_progress_s=exponential,,,,,1303.8211719989777
-1,0.0001,0.001,tanh,runs/reward_sweep_001_pre_releas=0.0001_pre_releas=0.001_progress_s=tanh,,,,,1330.1004598140717
-2,0.0001,0.001,polynomial_3,runs/reward_sweep_002_pre_releas=0.0001_pre_releas=0.001_progress_s=polynomial_3,,,,,1343.5349037647247
-3,0.0001,0.001,polynomial_5,runs/reward_sweep_003_pre_releas=0.0001_pre_releas=0.001_progress_s=polynomial_5,,,,,1339.913135766983
-4,0.0001,0.001,inverse_square,runs/reward_sweep_004_pre_releas=0.0001_pre_releas=0.001_progress_s=inverse_square,,,,,1343.8378880023956
