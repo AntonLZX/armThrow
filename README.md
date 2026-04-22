@@ -41,7 +41,9 @@ python capture_success.py
 - [`arm.urdf`](arm.urdf): 3-DOF arm model
 - [`visualize_arm.py`](visualize_arm.py): manual visualization/debug script
 - [`configs/`](configs): frozen experiment configs and curriculum stages
-
+- [`physics_baseline.py`](physics_baseline.py): scripted physics controller for ArmThrow
+- [`sweep.py`](sweep.py): Wandb hyperparameter sweep runner
+- [`test.py`](test.py): Validation / testing script for any ArmThrow model
 
 ## Environment Setup
 
@@ -389,3 +391,7 @@ The most useful metrics to monitor are:
 - `valid/timeout_after_release_rate`
 
 These are more informative than reward alone.
+
+
+# AI Declaration
+Claude Sonnet 4.6 and ChatGPT were used to help write this code, mostly for clear code comments, documentation, and improving efficiency of base logic. We are responsible for the content and quality of the submitted work.

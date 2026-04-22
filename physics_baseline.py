@@ -242,16 +242,10 @@ class PhysicsBaseline:
 
         # Release gate: don't allow _trajectory_hits to trigger until the ball
         # is moving at least 20% above v_min.  At exactly v_min there is only
-        # one valid launch angle (45°), so the success window has zero width —
-        # any 1-step lag or velocity-direction error causes a miss.  The 1.2×
-        # factor opens the window to a usable angular range while staying well
-        # below v_target (1.5×), so the gate never blocks the intended release.
+        # one valid launch angle (45°), so the success window has zero width
         self._v_min_threshold = v_min * 1.2
 
         # Windup depth: enough arc to sweep through the release window
-        # The release window is the range of arm angles at which _trajectory_hits
-        # fires.  Farther or higher targets require higher launch angles, which
-        # means more of the upward arc must be covered → deeper windup.
         # Rule of thumb derived from projectile geometry:
         #   close targets (D < 1.2 m or dz ≤ 0):  ~25 steps  (≈ 0.4 s)
         #   medium targets (D 1.2–2.0 m):          ~40 steps  (≈ 0.7 s)
@@ -327,8 +321,6 @@ class PhysicsBaseline:
 
 
         # Phase yaw_align
-        # PD control on joint 0 (obs[3] = actual angular velocity) to damp
-        # oscillation and converge faster
         # Joints 1 & 2 are driven to zero so they start the windup from rest.
         if self._phase == "yaw_align":
             # Kp=8, Kd=2 — derivative term brakes the approach and prevents
@@ -345,17 +337,10 @@ class PhysicsBaseline:
 
         # Phase windup
         # Joints 1 & 2 wind backward at effective_scale (not full swing_scale).
-        # Winding up at the same scale used for the throw means no deceleration
-        # phase at the start of swing — the arm transitions smoothly from
-        # -s·ω_max to +s·ω_max, cutting the wasted swing steps from ~30 to ~12.
         # Exit early if the joints are already saturated at the target velocity.
         elif self._phase == "windup":
             # When joint 0 was snapped directly, hold it at zero velocity.
-            # Otherwise use a soft P-controller to maintain yaw alignment.
-            j0_vel = 0.0 if self._env is not None else float(np.clip(
-                yaw_error * 4.0 - j0_ang_vel * 1.0,
-                -self.swing_scale, self.swing_scale,
-            ))
+            j0_vel = 0.0
             max_wind = min(self._effective_windup_steps, self._MAX_WINDUP_STEPS)
             # Adaptive early exit: joints 1 & 2 have reached target winding velocity
             joints_wound_up = (
@@ -371,18 +356,9 @@ class PhysicsBaseline:
 
         # Phase swing
         # Joints 1 & 2 drive forward at effective_scale.
-        # Joint 0 uses a very light PD correction (0.12×) to avoid fighting
-        # the throw while still correcting slow drift.
-        # Release when _trajectory_hits() confirms the current trajectory hits.
-        # On failure, bracket the scale: attempt 1 tries 0.80×, attempt 2
-        # tries 1.20×, covering both "too fast" and "too slow" cases.
         elif self._phase == "swing":
             # When joint 0 was snapped directly, hold at zero velocity.
-            # Otherwise use a light correction to counteract slow drift.
-            j0_vel = 0.0 if self._env is not None else float(np.clip(
-                yaw_error * 4.0 - j0_ang_vel * 1.0,
-                -self.swing_scale, self.swing_scale,
-            )) * 0.12
+            j0_vel = 0.0
 
             ball_speed = float(np.linalg.norm(ball_vel))
             dx = float(target[0]) - float(ball_pos[0])
