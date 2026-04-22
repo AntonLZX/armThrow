@@ -173,6 +173,63 @@ The corresponding stage-3 tail metrics were:
 The original manual chain is still available via `train.py` plus `--load-model`
 if you want to replay the stages explicitly.
 
+### 4. Reward scaling factor sweep
+
+The repository includes a batch training tool to systematically experiment with different
+reward scaling configurations. This allows comparing how different penalty values and 
+shaping functions affect learning performance.
+
+#### Overview
+
+`batch_train_rewards.py` generates multiple training trials with different parameter combinations
+and collects results into a summary CSV for easy comparison. It supports three experiment modes:
+
+- **`penalties`**: Fix the exponential shaping function and test different penalty combinations (9 trials by default)
+- **`functions`**: Fix the penalties and test different shaping functions (5 trials by default)
+- **`custom`**: Provide custom parameter combinations via JSON
+
+#### Usage
+
+**Test the setup with a few trials** (takes 5-15 minutes):
+```bash
+python batch_train_rewards.py --mode penalties --trials 3 --no-render
+```
+
+**Run the full penalty sweep** (9 trials, varies `pre_release_action_penalty` and `pre_release_const_penalty`):
+```bash
+python batch_train_rewards.py --mode penalties --no-render
+```
+
+**Run the shaping function sweep** (5 trials, tests different reward shaping functions):
+```bash
+python batch_train_rewards.py --mode functions --no-render
+```
+
+**Custom parameter combinations** (use JSON to specify exact values):
+```bash
+python batch_train_rewards.py \
+  --mode custom \
+  --combinations '{"pre_release_action_penalty": [0.0001, 0.001], "pre_release_const_penalty": [0.001, 0.002], "progress_shaping_function": ["exponential", "tanh"]}' \
+  --no-render
+```
+
+**Start from a pre-trained model** (faster convergence):
+```bash
+python batch_train_rewards.py --mode penalties --load-model runs/pretrained_model/model.zip --no-render
+```
+
+#### Optional arguments
+
+| Argument | Description |
+|---|---|
+| `--base-config` | Base config file to use (default: `configs/base.yaml`) |
+| `--output-dir` | Directory to save generated configs (default: `configs/reward_sweep`) |
+| `--trials N` | Run only first N combinations (useful for testing) |
+| `--dry-run` | Print combinations without running training |
+| `--no-render` | Disable PyBullet rendering (recommended for faster training) |
+| `--load-model PATH` | Load pre-trained model for all trials |
+
+
 ## Evaluation
 
 Two scripts are provided for evaluating a trained model after training is complete.
