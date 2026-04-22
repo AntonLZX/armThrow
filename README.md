@@ -38,8 +38,10 @@ python capture_success.py
 - [`callbacks.py`](callbacks.py): GIF recording, W&B logging, eval callbacks
 - [`config.py`](config.py): config loading, normalization, run directory helpers
 - [`capture_success.py`](capture_success.py): local utility to search for a successful rollout and save a GIF/PNG proof
+- [`batch_train_rewards.py`](batch_train_rewards.py): batch runner used for reward-function comparison sweeps
 - [`arm.urdf`](arm.urdf): 3-DOF arm model
 - [`visualize_arm.py`](visualize_arm.py): manual visualization/debug script
+- [`train_curriculum.py`](train_curriculum.py): automatic 3-stage curriculum runner with metric-based stage switching
 - [`configs/`](configs): frozen experiment configs and curriculum stages
 - [`physics_baseline.py`](physics_baseline.py): scripted physics controller for ArmThrow
 - [`sweep.py`](sweep.py): Wandb hyperparameter sweep runner
